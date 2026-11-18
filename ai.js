@@ -3,7 +3,8 @@
 // The AI key is stored only on this device (Settings), never in the code.
 // Note: on a public release the key should move to a small server so people don't need their own.
 
-export const MODEL = "gemini-2.5-flash";
+// Google retires old models often, so try a few in order and remember the first one that answers.
+const MODELS = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.5-flash-lite"];
 
 const FORMAT = `Return ONLY JSON, no other text:
 {"found": true, "menuNote": "where the menu came from and how recent it looks, one short line",
@@ -29,11 +30,18 @@ export async function readMenu(key, place, photo) {
   const body = { contents: [{ role: "user", parts }] };
   if (!photo) body.tools = [{ google_search: {} }];
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify(body),
-  });
+  let res;
+  const saved = localStorage.getItem("drekka-model");
+  for (const model of saved ? [saved, ...MODELS.filter((m) => m !== saved)] : MODELS) {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify(body),
+    });
+    if (res.status !== 404) { if (res.ok) localStorage.setItem("drekka-model", model); break; }
+  }
+  if (res.status === 404) throw new Error("Google's AI isn't answering right now. Try again in a few minutes.");
+  if (res.status === 503) throw new Error("Google's AI is busy right now. Try again in a minute.");
   if (res.status === 429) throw new Error("You've used today's free AI searches. Try again tomorrow.");
   if (res.status === 400 || res.status === 403) throw new Error("The AI key didn't work. Check it in Settings.");
   if (!res.ok) throw new Error("The AI didn't answer (" + res.status + "). Try again in a minute.");
