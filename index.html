@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Drekka</title>
+<meta name="description" content="Find the most unique drink at any café, bar or restaurant, and keep a journal of every drink you try.">
+<meta name="theme-color" content="#4a3121">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Drekka">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="leather">
+  <button id="journal-btn" class="icon-btn" aria-label="Open my journal" title="My journal">
+    <svg viewBox="0 0 24 24"><path d="M5 3h11a3 3 0 0 1 3 3v15H8a3 3 0 0 1-3-3z"/><path d="M5 18a3 3 0 0 1 3-3h11"/></svg>
+  </button>
+  <div class="brand"><h1>Drekka</h1><p>to drink, in Faroese</p></div>
+  <div class="header-right">
+    <button id="sound-btn" class="icon-btn" aria-label="Sound on or off" title="Sound"></button>
+    <button id="settings-btn" class="icon-btn" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- 1. Where are you? -->
+  <section id="search-view" class="view">
+    <h2 class="ink">Where are you drinking today?</h2>
+    <p class="hand">Type a café, bar or restaurant. I'll find the rarest thing on the menu.</p>
+    <input id="search" type="search" placeholder="e.g. Laymoon Cafe Tempe" autocomplete="off" enterkeyhint="search">
+    <ul id="results" class="results"></ul>
+  </section>
+
+  <!-- 2. The picks -->
+  <section id="picks-view" class="view" hidden>
+    <button id="back-btn" class="link-btn">← another place</button>
+    <h2 id="place-name" class="ink"></h2>
+    <p id="place-addr" class="addr"></p>
+    <div id="favorite" class="favorite" hidden></div>
+    <div id="status" class="status"></div>
+    <div id="cards" class="cards"></div>
+    <div id="after-picks" hidden>
+      <p class="hand">Not feeling these? Tap any flavors you're in the mood for:</p>
+      <div id="chips" class="chips"></div>
+      <button id="more-btn" class="ink-btn">Show me 3 more</button>
+      <p id="menu-note" class="small"></p>
+    </div>
+    <label class="photo-btn ink-btn ghost">
+      <input id="menu-photo" type="file" accept="image/*" capture="environment" hidden>
+      Snap the menu instead (best for today's specials)
+    </label>
+  </section>
+
+  <!-- 3. My journal -->
+  <section id="journal-view" class="view" hidden>
+    <button id="journal-back" class="link-btn">← find a drink</button>
+    <h2 class="ink">My drink journal</h2>
+    <p id="journal-count" class="hand"></p>
+    <button id="new-entry" class="ink-btn ghost">+ Add a drink by hand</button>
+    <div id="entries" class="entries"></div>
+  </section>
+</main>
+
+<!-- The journal page that opens like a book when you log a drink -->
+<div id="book" class="book-overlay" hidden>
+  <div class="book">
+    <div class="page">
+      <button id="book-close" class="close" aria-label="Close without saving">×</button>
+      <input id="e-name" class="drink-label" placeholder="Drink name" aria-label="Drink name">
+      <p id="e-place" class="addr"></p>
+      <div class="page-row">
+        <div class="polaroid">
+          <video id="cam" playsinline muted autoplay></video>
+          <img id="snap" alt="" hidden>
+          <div id="sketch" class="sketch" hidden><svg viewBox="0 0 100 100" aria-hidden="true">
+            <path d="M30 30h40l-6 52a6 6 0 0 1-6 5H42a6 6 0 0 1-6-5z"/><path d="M28 30h44"/><path d="M58 30l8-18"/>
+            <path d="M34 48c8 4 24 4 32 0" stroke-dasharray="3 3"/><circle cx="46" cy="64" r="2"/><circle cx="55" cy="72" r="1.6"/><circle cx="50" cy="56" r="1.3"/>
+          </svg></div>
+          <div class="cam-btns">
+            <button id="snap-btn" class="mini">snap</button>
+            <button id="skip-btn" class="mini">no photo</button>
+            <label id="upload-btn" class="mini" hidden>add photo<input id="upload" type="file" accept="image/*" hidden></label>
+          </div>
+        </div>
+        <div class="rating-box">
+          <p class="hand">Scribble your rating</p>
+          <canvas id="scribble" width="300" height="150"></canvas>
+          <button id="clear-scribble" class="mini">erase</button>
+        </div>
+      </div>
+      <p class="hand">How much did you love it?</p>
+      <div id="dots" class="dots"></div>
+      <textarea id="e-note" placeholder="A little note (optional)" rows="2"></textarea>
+      <button id="save-entry" class="ink-btn">Save to journal</button>
+    </div>
+    <div class="cover leather"><span class="cover-title">Drekka</span><svg class="key" viewBox="0 0 60 24"><circle cx="10" cy="12" r="8"/><circle cx="10" cy="12" r="3"/><path d="M18 12h38M46 12v7M52 12v5"/></svg></div>
+  </div>
+</div>
+
+<!-- Settings -->
+<dialog id="settings">
+  <h2 class="ink">Settings</h2>
+  <p>Drekka uses Google's free Gemini AI to read menus. Paste your free key here. It stays only on this device.</p>
+  <ol class="small">
+    <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with Google.</li>
+    <li>Tap <b>Create API key</b> and copy it.</li>
+    <li>Paste it below and save.</li>
+  </ol>
+  <input id="key-input" type="password" placeholder="Paste your AI key" autocomplete="off">
+  <div class="dialog-btns">
+    <button id="key-save" class="ink-btn">Save</button>
+    <button id="settings-close" class="link-btn">Close</button>
+  </div>
+  <hr>
+  <button id="clear-data" class="link-btn danger">Erase my journal from this device</button>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
