@@ -10,9 +10,11 @@ export const isMuted = () => muted;
 
 function start() {
   if (ctx) return;
+  // iphone: web sounds are muted by the silent switch unless the page says it's playing music.
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   master = ctx.createGain();
-  master.gain.value = muted ? 0 : 0.8;
+  master.gain.value = muted ? 0 : 1;
   master.connect(ctx.destination);
   // A soft echo makes single notes feel warm instead of beepy.
   echo = ctx.createDelay(); echo.delayTime.value = 0.32;
@@ -50,7 +52,11 @@ function rustle(when = 0) {
 
 export const sound = {
   // Call on every tap: wakes audio up (browsers need a tap first) and starts the background melody.
-  wake() { start(); if (ctx.state === "suspended") ctx.resume(); if (!bgTimer && !muted) background(); },
+  wake() {
+    start();
+    if (ctx.state !== "running") { ctx.resume(); unlock(); }
+    if (!bgTimer && !muted) background();
+  },
   tap() { note(any(SCALE.slice(3)), 0, 0.5, 0.14, "triangle"); },
   chip(on) { note(on ? SCALE[6] : SCALE[3], 0, 0.45, 0.13, "triangle"); },
   // Three picks appear: a rising little arpeggio, different every time.
@@ -60,19 +66,25 @@ export const sound = {
   toggle() {
     muted = !muted;
     try { localStorage.setItem("drekka-muted", muted ? "1" : "0"); } catch {}
-    if (master) master.gain.value = muted ? 0 : 0.8;
+    if (master) master.gain.value = muted ? 0 : 1;
     if (muted) { clearTimeout(bgTimer); bgTimer = null; } else { start(); background(); }
     return muted;
   },
 };
+
+// Older iphones only start web audio after a sound is played inside a tap: play one silent blip.
+function unlock() {
+  const b = ctx.createBuffer(1, 1, 22050), src = ctx.createBufferSource();
+  src.buffer = b; src.connect(ctx.destination); src.start(0);
+}
 
 // Background: a slow, wandering melody with a soft low note now and then. Never repeats exactly.
 function background() {
   clearTimeout(bgTimer);
   const step = () => {
     if (muted) { bgTimer = null; return; }
-    note(any(SCALE) * (Math.random() < 0.3 ? 0.5 : 1), 0, 3.2, 0.08);
-    if (Math.random() < 0.25) note(any(SCALE.slice(0, 4)) / 2, 0.2, 4.5, 0.07);
+    note(any(SCALE) * (Math.random() < 0.3 ? 0.5 : 1), 0, 3.2, 0.16);
+    if (Math.random() < 0.3) note(any(SCALE.slice(0, 4)) / 2, 0.2, 4.5, 0.14);
     bgTimer = setTimeout(step, 1600 + Math.random() * 2600);
   };
   step();

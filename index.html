@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Pinyon+Script&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -34,8 +34,7 @@
   <!-- 1. Where are you? -->
   <section id="search-view" class="view">
     <h2 class="ink">where are you drinking today?</h2>
-    <p class="hand">type a café, bar or restaurant. i'll find the rarest thing on the menu.</p>
-    <input id="search" type="search" placeholder="e.g. laymoon cafe tempe" autocomplete="off" enterkeyhint="search">
+    <input id="search" type="search" placeholder="café, bar or restaurant" autocomplete="off" enterkeyhint="search">
     <ul id="results" class="results"></ul>
   </section>
 
@@ -87,13 +86,12 @@
           </div>
         </div>
         <div class="rating-box">
-          <p class="hand">scribble your rating</p>
+          <p class="hand">scribble your rating (like 8/10)</p>
           <canvas id="scribble" width="300" height="150"></canvas>
           <button id="clear-scribble" class="mini">erase</button>
         </div>
       </div>
-      <p class="hand">how much did you love it?</p>
-      <div id="dots" class="dots"></div>
+      <div id="dots-wrap" hidden><p class="hand">tap your rating instead</p><div id="dots" class="dots"></div></div>
       <textarea id="e-note" placeholder="a little note (optional)" rows="2"></textarea>
       <button id="save-entry" class="ink-btn">save to journal</button>
     </div>
@@ -107,7 +105,8 @@
 <!-- Settings -->
 <dialog id="settings">
   <h2 class="ink">settings</h2>
-  <p>drekka uses google's free gemini ai to read menus. paste your free key here. it stays only on this device.</p>
+  <div id="dev-keys">
+  <p>for testing without drekka's server: paste your own free google ai key. it stays only on this device.</p>
   <ol class="small">
     <li>go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with google.</li>
     <li>tap <b>create api key</b> and copy it.</li>
@@ -116,15 +115,26 @@
   <input id="key-input" type="password" placeholder="paste your ai key" autocomplete="off">
   <p class="small">optional: a free <a href="https://jina.ai/" target="_blank" rel="noopener">jina.ai</a> key (starts with “jina_”) helps drekka read trickier menus, like swig's.</p>
   <input id="jina-input" type="password" placeholder="paste your jina key (optional)" autocomplete="off">
-  <div class="dialog-btns">
-    <button id="key-save" class="ink-btn">save</button>
-    <button id="settings-close" class="link-btn">close</button>
+  <button id="key-save" class="ink-btn">save</button>
   </div>
+  <div class="dialog-btns"><button id="settings-close" class="link-btn">close</button></div>
   <hr>
   <p id="me-summary" class="small"></p>
   <button id="retake-quiz" class="link-btn">retake the taste quiz</button>
   <hr>
   <button id="clear-data" class="link-btn danger">erase my journal from this device</button>
+</dialog>
+
+<!-- Feedback, after saving a drink now and then -->
+<dialog id="feedback">
+  <h2 class="ink">quick question</h2>
+  <p class="hand">did drekka help you pick today?</p>
+  <div id="fb-help" class="chips"><button class="chip" data-v="yes">yes!</button><button class="chip" data-v="kinda">kinda</button><button class="chip" data-v="no">not really</button></div>
+  <p class="hand">one thing you'd change?</p>
+  <textarea id="fb-change" rows="2" placeholder="anything at all"></textarea>
+  <p class="hand">anything else on your mind?</p>
+  <textarea id="fb-more" rows="2" placeholder="what you loved, what bugged you"></textarea>
+  <div class="dialog-btns"><button id="fb-send" class="ink-btn">send</button><button id="fb-later" class="link-btn">not now</button></div>
 </dialog>
 
 <div id="toast" class="toast" hidden></div>

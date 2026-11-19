@@ -1,6 +1,10 @@
 // The "get to know you" welcome: one question per page, all taps, shown the first time someone
 // opens drekka (and again from settings). Answers are saved as "drekka-me" and shape the picks.
 
+// The same flavor list for "love" and "hard no", so you can say no to as much as you say yes to.
+const FLAVORS = ["fruity", "citrus", "berry", "tropical", "coconut", "mango", "chocolate", "caramel", "vanilla", "nutty",
+  "floral", "herbal", "minty", "spicy", "creamy", "sour", "smoky", "coffee", "tea", "sweet"];
+
 // Each step: id, question, choices, multi (tap several) or single, and an optional "only if" rule.
 // Choices map to flavor words (f) the ai uses, and to words to look for in drink names (w).
 const STEPS = [
@@ -16,6 +20,16 @@ const STEPS = [
     { t: "cocktails", f: [], w: ["cocktail", "mojito", "margarita", "spritz", "martini"], alcohol: true },
     { t: "mocktails", f: ["fruity"], w: ["mocktail", "spritz", "virgin"] },
     { t: "beer & wine", f: [], w: ["beer", "ale", "ipa", "wine", "cider"], alcohol: true },
+  ] },
+  { id: "nevers", q: "and drinks you'd never order?", hint: "a hard no means i'll never pick it for you", multi: true, no: true, choices: [
+    { t: "coffee", f: ["coffee"], w: ["coffee", "espresso", "cold brew", "americano", "cortado", "mocha", "macchiato", "cappuccino"] },
+    { t: "tea", f: ["tea"], w: ["tea"] },
+    { t: "matcha", w: ["matcha"] },
+    { t: "boba", w: ["boba", "pearl"] },
+    { t: "sodas", f: ["cola"], w: ["soda", "dr pepper", "coke", "sprite"] },
+    { t: "milky drinks", f: ["creamy"], w: ["milk", "cream"] },
+    { t: "alcohol", alcohol: true },
+    { t: "energy drinks", w: ["energy", "red bull", "rebel", "lotus"] },
   ] },
   { id: "coffee", q: "how do you like your coffee?", multi: true, onlyIf: (me) => me.kinds?.includes("coffee"), choices: [
     { t: "creamy lattes", f: ["creamy"], w: ["latte"] },
@@ -41,14 +55,11 @@ const STEPS = [
     { t: "spicy", f: ["spicy"], w: ["jalapeño", "chili", "ginger", "spicy"] },
     { t: "bubbly", f: ["citrus"], w: ["spritz", "sparkling", "fizz"] },
   ] },
-  { id: "loves", q: "flavors you love?", hint: "tap as many as you like", multi: true, choices: [
-    "fruity", "citrus", "berry", "tropical", "coconut", "chocolate", "caramel", "vanilla", "nutty",
-    "floral", "herbal", "spicy", "creamy", "sour", "smoky", "coffee", "tea", "sweet",
-  ].map((t) => ({ t, f: [t] })) },
-  { id: "skips", q: "anything you'd rather skip?", hint: "it's okay to say none", multi: true, choices: [
-    ...["chocolate", "coffee", "creamy", "sour", "spicy", "smoky", "floral", "herbal", "coconut", "nutty"].map((t) => ({ t, f: [t] })),
-    { t: "too sweet", f: ["sweet"] },
-    { t: "no alcohol", f: [], noAlcohol: true },
+  { id: "loves", q: "flavors you love?", hint: "tap as many as you like", multi: true, choices: FLAVORS.map((t) => ({ t, f: [t] })) },
+  { id: "skips", q: "flavors that are a hard no?", hint: "i'll never pick these for you", multi: true, no: true, choices: [
+    ...FLAVORS.map((t) => ({ t, f: [t] })),
+    { t: "too sweet", soft: ["sweet"] },
+    { t: "alcohol", alcohol: true },
   ] },
   { id: "places", q: "where do you usually end up?", multi: true, choices: [
     "cafés", "boba shops", "bars", "restaurants", "dessert spots", "juice bars", "breweries",
@@ -63,23 +74,30 @@ const STEPS = [
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-// Turn the answers into what picks.js needs: liked/skipped flavors, words to look for, adventure.
+// Turn the answers into what picks.js needs: liked flavors, words to look for, and hard no's
+// (flavors and words that are never picked), plus no-alcohol and adventure level.
 export function profileFrom(me) {
   if (!me) return null;
-  const loves = {}, words = new Set();
+  const loves = {}, words = new Set(), noFlavors = new Set(), noWords = new Set();
   let noAlcohol = false;
   const add = (f, w) => { loves[f] = (loves[f] || 0) + w; };
   for (const step of STEPS) {
     const picked = me[step.id];
     if (!Array.isArray(picked)) continue;
     for (const c of step.choices.filter((c) => picked.includes(c.t))) {
-      if (step.id === "skips") { (c.f || []).forEach((f) => add(f, -1.5)); if (c.noAlcohol) noAlcohol = true; continue; }
+      if (c.alcohol) { if (step.no) noAlcohol = true; continue; }
+      if (step.no) {
+        (c.f || []).forEach((f) => noFlavors.add(f));
+        (c.w || []).forEach((w) => noWords.add(w));
+        (c.soft || []).forEach((f) => add(f, -1.5));
+        continue;
+      }
       (c.f || []).forEach((f) => add(f, step.id === "loves" ? 1 : 0.5));
       (c.w || []).forEach((w) => words.add(w));
     }
   }
   const adventure = STEPS.find((s) => s.id === "adventure").choices.find((c) => c.t === me.adventure)?.a ?? 0.35;
-  return { loves, words: [...words], noAlcohol, adventure };
+  return { loves, words: [...words], noFlavors: [...noFlavors], noWords: [...noWords], noAlcohol, adventure };
 }
 
 // A friendly one-line summary for the end of the quiz (and settings).

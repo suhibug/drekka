@@ -42,7 +42,11 @@ export function pickThree(drinks, entries, placeName, chosen = [], skip = [], pr
   const triedHere = new Set(entries.filter((e) => key(e.placeName) === key(placeName)).map((e) => key(e.drinkName)));
   const skipped = new Set(skip.map(key));
 
-  let pool = drinks.filter((d) => !skipped.has(key(d.name)) && !(prefs?.noAlcohol && d.alcohol));
+  // Hard no's are never picked: not even as the rare one or the wild card.
+  const noF = prefs?.noFlavors || [], noW = prefs?.noWords || [];
+  const hardNo = (d) => (prefs?.noAlcohol && d.alcohol) || (d.flavors || []).some((f) => noF.includes(f)) ||
+    noW.some((w) => `${d.name} ${d.description || ""}`.toLowerCase().includes(w));
+  let pool = drinks.filter((d) => !skipped.has(key(d.name)) && !hardNo(d));
   if (chosen.length) pool = pool.filter((d) => (d.flavors || []).some((f) => chosen.includes(f)));
   // Drinks you haven't tried here come first; tried ones only if nothing else is left.
   const fresh = pool.filter((d) => !triedHere.has(key(d.name)));
@@ -53,7 +57,10 @@ export function pickThree(drinks, entries, placeName, chosen = [], skip = [], pr
   const take = (d) => { if (d) taken.add(d.name); return d; };
   const left = () => pool.filter((d) => !taken.has(d.name));
 
-  const unique = take(best(left(), (d) => d.uniqueness + (d.seasonal ? 0.5 : 0) + (d.popular ? 0.2 : 0)));
+  // The rare one: the rarest drink that still fits you (skips drinks your taste leans against).
+  const fits = hasTaste ? left().filter((d) => likes(d, profile, words) >= 0) : left();
+  const unique = take(best(fits.length ? fits : left(), (d) => d.uniqueness + (d.seasonal ? 0.5 : 0) + (d.popular ? 0.2 : 0)
+    + (hasTaste ? Math.min(likes(d, profile, words), 3) * 0.5 : 0)));
   const forYou = take(best(left(), (d) => hasTaste
     ? likes(d, profile, words) * 2 + d.uniqueness * adventure + (d.popular ? 1 : 0)
     : (d.popular ? 3 : 0) + d.uniqueness * 0.5 + (d.seasonal ? 0.5 : 0)));

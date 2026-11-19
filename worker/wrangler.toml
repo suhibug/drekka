@@ -1,0 +1,11 @@
+# drekka's server on Cloudflare Workers (free plan).
+# Deploy: npx wrangler deploy   (from this folder)
+name = "drekka-api"
+main = "index.js"
+compatibility_date = "2026-11-01"
+
+# Remembered menus and feedback. Create once with: npx wrangler kv namespace create DREKKA
+# then paste the id it prints below.
+[[kv_namespaces]]
+binding = "DREKKA"
+id = "REPLACE_WITH_KV_ID"

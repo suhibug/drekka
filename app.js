@@ -1,6 +1,7 @@
 // Drekka: find the most unique drink at a place, and keep a journal of drinks you try.
 // Screens: search -> picks -> (optional) journal page. Everything is saved on this device only.
-import { readMenu } from "./ai.js";
+import { readMenu, readRating } from "./ai.js";
+import { API } from "./config.js";
 import { fetchMenuText } from "./menu.js";
 import { pickThree, flavorChips, favoriteHere } from "./picks.js";
 import { sound, isMuted } from "./sound.js";
@@ -30,8 +31,25 @@ function show(view) {
   window.scrollTo(0, 0);
 }
 
-// Every tap wakes the sound (browsers need a tap before audio can play).
-document.addEventListener("pointerdown", () => sound.wake(), { capture: true });
+// Every tap wakes the sound (browsers, especially on iphone, need a tap before audio can play).
+for (const ev of ["pointerdown", "touchend", "click"]) document.addEventListener(ev, () => sound.wake(), { capture: true });
+
+// ---------- Menus: from drekka's server, or (testing) with your own keys ----------
+const placeKey = (p) => (p.osm || `${p.name}|${p.address}`).toLowerCase();
+const pending = new Map(); // lookups already started (so tapping a result reuses the head start)
+function getMenu(p) {
+  const k = placeKey(p);
+  if (!pending.has(k)) {
+    const job = API
+      ? fetch(API + "/menu", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) })
+          .then((r) => r.json()).then((m) => { if (m.error) throw new Error(m.error); return m; })
+      : fetchMenuText(p, { jinaKey: store.get("drekka-jina", "") })
+          .then((got) => (got ? readMenu(aiKey(), p, got.pages) : { found: false, drinks: [] }));
+    job.catch(() => pending.delete(k)); // a failed lookup can be tried again
+    pending.set(k, job);
+  }
+  return pending.get(k);
+}
 
 // ---------- Sound button ----------
 const SPEAKER_ON = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>';
@@ -58,6 +76,12 @@ async function findPlaces(q) {
       const addr = [[p.housenumber, p.street].filter(Boolean).join(" "), p.city || p.town || p.village, p.state, p.country].filter(Boolean).join(", ");
       return p.name ? `<li><button data-name="${esc(p.name)}" data-addr="${esc(addr)}" data-osm="${esc(p.osm_type + p.osm_id)}"><b>${esc(p.name)}</b><span>${esc(addr)}</span></button></li>` : "";
     }).join("");
+    // Start reading the top result's menu right away, so it's (nearly) ready when it's tapped.
+    const top = data.features.find((f) => f.properties.name)?.properties;
+    if (API && top && $("search").value.trim() === q) {
+      const addr = [[top.housenumber, top.street].filter(Boolean).join(" "), top.city || top.town || top.village, top.state, top.country].filter(Boolean).join(", ");
+      getMenu({ name: top.name, address: addr, osm: top.osm_type + top.osm_id }).catch(() => {});
+    }
   } catch { /* offline or search down */ }
   if ($("search").value.trim() === q) $("results").innerHTML = rows || `<li class="none">can't find that spot on the map. try adding the city, like “yi fang tempe”.</li>`;
 }
@@ -83,26 +107,22 @@ async function openPlace(p) {
   $("favorite").hidden = !fav;
   if (fav) $("favorite").textContent = `last time you loved the ${fav.drinkName} here (${fav.rating}/10). want it again?`;
 
-  if (!aiKey()) {
+  if (!API && !aiKey()) {
     $("status").textContent = "first, add your free ai key in settings so i can read menus.";
     $("settings").showModal();
     return;
   }
-  // Each place's menu is saved for the day, so coming back doesn't use up free AI searches.
-  const cacheKey = `drekka-menu:${p.name}|${p.address}`.toLowerCase();
+  // Each place's menu is saved on the phone for the day, so coming back is instant.
+  const cacheKey = `drekka-menu:${placeKey(p)}`;
   const cached = store.get(cacheKey, null);
   if (cached && cached.day === today()) { menu = cached.menu; return showPicks(); }
 
   // Find their website, open the menu pages, then let the ai pick out the drinks.
   const say = (t) => { if (place === p) $("status").innerHTML = `<span class="dots-loading">${t}</span>`; };
-  say("finding their menu");
-  const slow = setTimeout(() => say("still reading, some menus take a little while"), 12000);
+  say("reading their menu");
+  const slow = setTimeout(() => say("picking the rarest drinks"), 4000);
   try {
-    const got = await fetchMenuText(p);
-    if (!got) { clearTimeout(slow); if (place === p) $("status").textContent = "couldn't find this place's menu online. try another spot nearby."; return; }
-    clearTimeout(slow);
-    say("picking the rarest drinks");
-    menu = await readMenu(aiKey(), p, got.pages);
+    menu = await getMenu(p);
   } catch (err) {
     clearTimeout(slow);
     if (place !== p) return;
@@ -112,7 +132,7 @@ async function openPlace(p) {
   clearTimeout(slow);
   if (place !== p) return; // they already moved on to another place
   if (!menu.found) {
-    $("status").textContent = "found their website, but no drinks on it. try another spot nearby.";
+    $("status").textContent = "i looked everywhere and couldn't find this place's drink menu online. try another spot nearby.";
     return;
   }
   store.set(cacheKey, { day: today(), menu });
@@ -180,7 +200,7 @@ function shrink(fileOrVideo, size, quality, vintage = false) {
       const c = document.createElement("canvas");
       c.width = Math.round(w * s); c.height = Math.round(h * s);
       const g = c.getContext("2d");
-      if (vintage) g.filter = "grayscale(1) sepia(0.45) contrast(1.15) brightness(0.97)";
+      if (vintage) g.filter = "grayscale(1) sepia(0.9) contrast(0.95) brightness(1.02)";
       g.drawImage(src, 0, 0, c.width, c.height);
       if (vintage) agePhoto(g, c.width, c.height);
       resolve(c.toDataURL("image/jpeg", quality));
@@ -192,13 +212,19 @@ function shrink(fileOrVideo, size, quality, vintage = false) {
   });
 }
 
+// The old-photo look: warm brown tint, faded blacks, film grain, a few fine scratches, dark corners.
 function agePhoto(g, w, h) {
   g.filter = "none";
+  g.globalCompositeOperation = "multiply"; g.fillStyle = "rgba(150, 95, 45, 0.35)"; g.fillRect(0, 0, w, h);
+  g.globalCompositeOperation = "screen"; g.fillStyle = "rgba(70, 45, 20, 0.28)"; g.fillRect(0, 0, w, h);
+  g.globalCompositeOperation = "source-over";
   const img = g.getImageData(0, 0, w, h), d = img.data;
-  for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 26; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 30; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
   g.putImageData(img, 0, 0);
-  const v = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.72);
-  v.addColorStop(0, "rgba(40,25,10,0)"); v.addColorStop(1, "rgba(40,25,10,0.55)");
+  g.strokeStyle = "rgba(245, 230, 200, 0.35)"; g.lineWidth = 0.6;
+  for (let k = 0; k < 4; k++) { const x = Math.random() * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (Math.random() - 0.5) * 20, h); g.stroke(); }
+  const v = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.28, w / 2, h / 2, Math.max(w, h) * 0.72);
+  v.addColorStop(0, "rgba(45, 28, 12, 0)"); v.addColorStop(1, "rgba(45, 28, 12, 0.65)");
   g.fillStyle = v; g.fillRect(0, 0, w, h);
 }
 
@@ -210,7 +236,7 @@ async function openBook(info) {
   $("e-name").value = info.drinkName || "";
   $("e-place").textContent = info.placeName ? `${info.placeName}${info.placeAddr ? " · " + info.placeAddr : ""}` : "";
   $("e-note").value = "";
-  clearScribble(); drawDots();
+  clearScribble(); drawDots(); $("dots-wrap").hidden = true;
   $("snap").hidden = true; $("sketch").hidden = true; $("cam").hidden = false;
   $("snap-btn").hidden = false; $("skip-btn").hidden = false; $("upload-btn").hidden = true;
   $("book").hidden = false;
@@ -297,10 +323,25 @@ pad.addEventListener("pointercancel", () => (drawing = false));
 $("clear-scribble").onclick = clearScribble;
 
 $("book-close").onclick = () => closeBook();
-$("save-entry").onclick = () => {
+// Read the scribbled rating ("8/10") with the ai. Returns a number, or null if it can't tell.
+async function readScribble() {
+  const image = pad.toDataURL("image/png").split(",")[1];
+  try {
+    if (API) return (await (await fetch(API + "/rating", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) })).json()).rating;
+    return aiKey() ? await readRating(aiKey(), image) : null;
+  } catch { return null; }
+}
+
+$("save-entry").onclick = async () => {
   const name = $("e-name").value.trim();
   if (!name) { $("e-name").focus(); return toast("give the drink a name first"); }
-  if (!draft.rating) return toast("tap a number to rate it");
+  if (!draft.rating) {
+    if (!scribbled) return toast("scribble your rating first, like 8/10");
+    $("save-entry").textContent = "reading your scribble…";
+    draft.rating = await readScribble();
+    $("save-entry").textContent = "save to journal";
+    if (!draft.rating) { $("dots-wrap").hidden = false; return toast("couldn't read that one. tap a number instead"); }
+  }
   const entry = {
     id: Date.now(), date: today(), drinkName: name,
     placeName: draft.placeName || "", placeAddr: draft.placeAddr || "",
@@ -310,7 +351,39 @@ $("save-entry").onclick = () => {
   };
   if (!store.set("drekka-journal", [entry, ...journal()])) return toast("your phone is out of space for photos");
   sound.save();
-  closeBook(() => { toast("cheers! saved to your journal"); if (!$("journal-view").hidden) drawJournal(); });
+  closeBook(() => {
+    toast(`cheers! saved as ${entry.rating}/10`);
+    if (!$("journal-view").hidden) drawJournal();
+    askFeedback();
+  });
+};
+
+// ---------- Feedback (after saving a drink, now and then) ----------
+// Asks after the 1st and 3rd saved drink, then every 5th. Never twice in one day.
+function askFeedback() {
+  const n = journal().length, last = store.get("drekka-feedback-day", "");
+  if (last === today() || !(n === 1 || n === 3 || n % 5 === 0)) return;
+  store.set("drekka-feedback-day", today());
+  $("fb-help").querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
+  $("fb-change").value = ""; $("fb-more").value = "";
+  setTimeout(() => $("feedback").showModal(), 900);
+}
+$("fb-help").addEventListener("click", (e) => {
+  const b = e.target.closest(".chip");
+  if (!b) return;
+  $("fb-help").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
+  sound.chip(true);
+});
+$("fb-later").onclick = () => $("feedback").close();
+$("fb-send").onclick = async () => {
+  const answer = {
+    helped: $("fb-help").querySelector(".chip.on")?.dataset.v || "",
+    change: $("fb-change").value.trim(), more: $("fb-more").value.trim(),
+    drinks: journal().length,
+  };
+  $("feedback").close(); toast("thank you, that means a lot");
+  if (API) fetch(API + "/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answer) }).catch(() => {});
+  else store.set("drekka-feedback", [...store.get("drekka-feedback", []), { ...answer, at: today() }]);
 };
 
 // ---------- Journal list ----------
@@ -341,6 +414,7 @@ $("new-entry").onclick = () => openBook({ drinkName: "", placeName: "", placeAdd
 
 // ---------- Settings ----------
 $("settings-btn").onclick = () => {
+  $("dev-keys").hidden = !!API; // with drekka's server, nobody needs keys
   $("key-input").value = aiKey();
   $("jina-input").value = store.get("drekka-jina", "");
   $("me-summary").textContent = me() ? summary(me()) : "";
@@ -358,7 +432,7 @@ function startQuiz() {
     if (answers) store.set("drekka-me", answers);
     store.set("drekka-welcomed", true);
     greet();
-    if (!aiKey()) $("settings").showModal(); // one-time setup: the free ai key
+    if (!API && !aiKey()) $("settings").showModal(); // testing without the server: add your own key
   });
 }
 if (!store.get("drekka-welcomed", false)) startQuiz();

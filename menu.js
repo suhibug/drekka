@@ -1,19 +1,27 @@
-// Finds a place's drink menu on the web, for free, with no photo:
-//   1. OpenStreetMap knows most places' websites (or, for chains, the brand -> Wikidata -> official site)
+// Finds a place's drink menu on the web, with no photo:
+//   1. OpenStreetMap knows most places' websites (for chains: brand -> Wikidata -> official site)
 //   2. Jina Reader opens the site like a real browser (it runs the page's JavaScript) and gives back text
-//   3. We follow the links that look like a menu or drinks page and collect their text
+//   3. We read the home page and /menu at the same time, then other menu or drinks links if needed
+//   4. No website, or no drinks on it? Search the web for "<place> <city> drink menu" (Jina search)
 // The text then goes to the AI (ai.js) to pick out the drinks.
+// Runs in the browser or on the drekka server (worker/), so keys are passed in, never stored here.
 
 const READER = "https://r.jina.ai/";
+// OpenStreetMap and Wikidata ask apps to say who they are, or they may refuse the request.
+const WHO = { "User-Agent": "drekka/1.0 (https://github.com/suhibug/drekka)" };
+const SEARCH = "https://s.jina.ai/?q=";
 const MENU_WORDS = /menu|drink|beverage|bev\b|coffee|tea|cocktail|bar\b|smoothie|shake|boba|juice|soda/i;
+const DRINK_LINK = /drink|bev|coffee|tea|cocktail/i;
 const SKIP = /\.(png|jpe?g|gif|webp|svg|ico|css|js)(\?|$)|instagram|facebook|tiktok|twitter|x\.com|yelp|google\.|maps|mailto:|tel:|careers|jobs|privacy|terms|login|cart|gift/i;
+// Words that show a page really lists drinks.
+const DRINKY = /latte|espresso|matcha|tea\b|lemonade|soda|smoothie|juice|cocktail|mojito|margarita|boba|refresher|cold brew|shake|spritz|sangria|frapp|dr pepper|coke|sprite|puree|syrup/gi;
 
 // The place's website from OpenStreetMap. place.osm = "N123" / "W123" / "R123" from the search result.
 export async function findWebsite(place) {
   if (!place.osm) return null;
   const type = { N: "node", W: "way", R: "relation" }[place.osm[0]];
   try {
-    const res = await fetch(`https://api.openstreetmap.org/api/0.6/${type}/${place.osm.slice(1)}.json`);
+    const res = await fetch(`https://api.openstreetmap.org/api/0.6/${type}/${place.osm.slice(1)}.json`, { headers: WHO });
     const tags = (await res.json()).elements?.[0]?.tags || {};
     const site = tags["website:menu"] || tags.website || tags["contact:website"] || tags["brand:website"];
     if (site) return site.startsWith("http") ? site : "https://" + site;
@@ -24,18 +32,15 @@ export async function findWebsite(place) {
 
 // Chains: Wikidata lists the brand's official website (property P856).
 async function brandWebsite(qid) {
-  const res = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`);
+  const res = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`, { headers: WHO });
   const claims = (await res.json()).entities?.[qid]?.claims?.P856;
   return claims?.[0]?.mainsnak?.datavalue?.value || null;
 }
 
-// Read one page as text (plus the links on it).
-// With a free jina key (settings), it can also read menus hidden inside frames (like swig's).
-function jinaKey() { try { return JSON.parse(localStorage.getItem("drekka-jina")) || ""; } catch { return ""; } }
-
-async function read(url) {
-  const key = jinaKey();
-  const extra = key ? { Authorization: "Bearer " + key, "X-With-Iframe": "true", "X-With-Shadow-Dom": "true" } : {};
+// Read one page as text (plus the links on it). With a jina key it can also read menus
+// hidden inside frames (like swig's).
+async function read(url, jinaKey) {
+  const extra = jinaKey ? { Authorization: "Bearer " + jinaKey, "X-With-Iframe": "true", "X-With-Shadow-Dom": "true" } : {};
   const res = await fetch(READER + url, {
     headers: { "X-With-Links-Summary": "true", "X-Retain-Images": "none", "X-Timeout": "15", ...extra },
     signal: AbortSignal.timeout(25000),
@@ -43,6 +48,8 @@ async function read(url) {
   if (!res.ok) throw new Error("reader " + res.status);
   return res.text();
 }
+
+const drinkiness = (text) => (text.match(DRINKY) || []).length;
 
 function links(text, site) {
   const host = new URL(site).hostname.replace(/^www\./, "");
@@ -55,27 +62,61 @@ function links(text, site) {
     if (MENU_WORDS.test(u.pathname + u.search) || MENU_WORDS.test(label)) found.add(u.href.replace(/#.*$/, ""));
   }
   // Drink pages first, then general menu pages.
-  return [...found].sort((a, b) => (/drink|bev|coffee|tea|cocktail/i.test(b) ? 1 : 0) - (/drink|bev|coffee|tea|cocktail/i.test(a) ? 1 : 0));
+  return [...found].sort((a, b) => (DRINK_LINK.test(b) ? 1 : 0) - (DRINK_LINK.test(a) ? 1 : 0));
 }
 
-// Returns { site, pages: [{ url, text }] } or null if nothing readable was found.
-export async function fetchMenuText(place) {
-  const site = await findWebsite(place);
-  if (!site) return null;
+// Read the place's own website. Returns pages.
+async function fromWebsite(site, jinaKey) {
   const pages = [];
-  // Read the home page and the usual /menu page at the same time (faster).
   const guess = new URL(site).origin + "/menu";
-  const [homeR, guessR] = await Promise.allSettled([read(site), guess === site ? Promise.reject() : read(guess)]);
+  const [homeR, guessR] = await Promise.allSettled([read(site, jinaKey), guess === site ? Promise.reject() : read(guess, jinaKey)]);
   if (homeR.status === "fulfilled") pages.push({ url: site, text: homeR.value });
   if (guessR.status === "fulfilled" && !/404|not found/i.test(guessR.value.slice(0, 400))) pages.push({ url: guess, text: guessR.value });
-  if (!pages.length) return null;
-  // Then any other menu-looking links from the home page.
-  const toRead = links(pages[0].text, site).filter((u) => !pages.some((p) => p.url === u)).slice(0, 2);
-  const results = await Promise.allSettled(toRead.map(read));
-  results.forEach((r, i) => { if (r.status === "fulfilled") pages.push({ url: toRead[i], text: r.value }); });
-  // One more hop: a menu page often has tabs (e.g. "drinks") as their own links.
-  const more = pages.flatMap((p) => links(p.text, site)).filter((u) => !pages.some((p) => p.url === u) && /drink|bev|coffee|tea|cocktail/i.test(new URL(u).pathname + new URL(u).search)).slice(0, 2);
-  const extra = await Promise.allSettled(more.map(read));
-  extra.forEach((r, i) => { if (r.status === "fulfilled") pages.push({ url: more[i], text: r.value }); });
-  return { site, pages };
+  if (!pages.length) return pages;
+  const enough = () => Math.max(...pages.map((p) => drinkiness(p.text))) >= 12;
+  // Only dig deeper if we don't have a real drinks list yet (saves time).
+  for (let hop = 0; hop < 2 && !enough(); hop++) {
+    const next = pages.flatMap((p) => links(p.text, site))
+      .filter((u, i, all) => all.indexOf(u) === i && !pages.some((p) => p.url === u))
+      .filter((u) => hop === 0 || DRINK_LINK.test(new URL(u).pathname + new URL(u).search))
+      .slice(0, 2);
+    if (!next.length) break;
+    const got = await Promise.allSettled(next.map((u) => read(u, jinaKey)));
+    got.forEach((r, i) => { if (r.status === "fulfilled") pages.push({ url: next[i], text: r.value }); });
+  }
+  return pages;
+}
+
+// Search the web for the menu (needs a jina key). Each search result comes with its page text.
+async function fromSearch(place, jinaKey) {
+  const city = (place.address || "").split(",").map((s) => s.trim()).filter((s) => !/^\d/.test(s))[1] || "";
+  const q = `${place.name} ${city} drink menu`.trim();
+  const res = await fetch(SEARCH + encodeURIComponent(q), {
+    headers: { Authorization: "Bearer " + jinaKey, "X-Retain-Images": "none" },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) return [];
+  const text = await res.text();
+  // Split into results: "[1] Title: ... [1] URL Source: ... [1] Markdown Content: ..."
+  return text.split(/\n(?=\[\d+\] Title:)/).map((chunk) => {
+    const url = chunk.match(/\[\d+\] URL Source: (\S+)/)?.[1];
+    return url && !/facebook|instagram|tiktok|pinterest/.test(url) ? { url, text: chunk.slice(0, 15000) } : null;
+  }).filter(Boolean).sort((a, b) => drinkiness(b.text) - drinkiness(a.text)).slice(0, 3);
+}
+
+// Returns { site, pages: [{ url, text }] } (most drink-filled page first) or null if nothing was found.
+export async function fetchMenuText(place, { jinaKey = "" } = {}) {
+  const site = await findWebsite(place);
+  let pages = site ? await fromWebsite(site, jinaKey).catch(() => []) : [];
+  const best = pages.length ? Math.max(...pages.map((p) => drinkiness(p.text))) : 0;
+  pages.sort((a, b) => drinkiness(b.text) - drinkiness(a.text));
+  // No website, or no real drinks on it: add web search results, after the official pages
+  // (they're the most accurate). Search is the slow step, so only when it's needed.
+  if (best < 4 && jinaKey) {
+    const found = await fromSearch(place, jinaKey).catch(() => []);
+    const official = (u) => site && new URL(u).hostname.replace(/^www\./, "") === new URL(site).hostname.replace(/^www\./, "");
+    pages = [...pages, ...found.filter((p) => official(p.url)), ...found.filter((p) => !official(p.url))]
+      .filter((p, i, all) => all.findIndex((x) => x.url === p.url) === i);
+  }
+  return pages.length ? { site, pages } : null;
 }
