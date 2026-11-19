@@ -1,6 +1,6 @@
 {
-  "name": "Drekka",
-  "short_name": "Drekka",
+  "name": "drekka",
+  "short_name": "drekka",
   "description": "Find the most unique drink at any café, bar or restaurant, and keep a journal of every drink you try.",
   "start_url": "./",
   "scope": "./",

@@ -1,8 +1,8 @@
 // Picks: chooses 3 drinks from a menu. Pure logic, no screen code.
-//   1. The unique one   - the rarest drink here
-//   2. Made for you     - leans toward flavors you rated high in your journal
-//                         (before you have ratings, it's the place's signature)
-//   3. Surprise me      - a rare drink outside your usual taste, on purpose
+//   1. rare_find   - the rarest drink here
+//   2. house_fave  - the place's signature (before you've rated anything)
+//      your_type   - leans toward flavors you rated high in your journal
+//   3. wild_card   - a rare drink outside your usual taste, on purpose
 
 // What your journal says you like: flavor -> score (positive = you like it).
 export function tasteProfile(entries) {
@@ -53,9 +53,9 @@ export function pickThree(drinks, entries, placeName, chosen = [], skip = []) {
   const surprise = take(best(outside.length ? outside : left(), (d) => d.uniqueness + Math.random() * 2.5));
 
   return [
-    unique && { kind: "unique", label: "The unique one", drink: unique },
-    forYou && { kind: "forYou", label: hasTaste ? "Made for you" : "The signature", drink: forYou },
-    surprise && { kind: "surprise", label: "Surprise me", drink: surprise },
+    unique && { kind: "unique", label: "rare_find", drink: unique },
+    forYou && { kind: "forYou", label: hasTaste ? "your_type" : "house_fave", drink: forYou },
+    surprise && { kind: "surprise", label: "wild_card", drink: surprise },
   ].filter(Boolean);
 }
 

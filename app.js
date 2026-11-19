@@ -1,6 +1,7 @@
 // Drekka: find the most unique drink at a place, and keep a journal of drinks you try.
 // Screens: search -> picks -> (optional) journal page. Everything is saved on this device only.
 import { readMenu } from "./ai.js";
+import { fetchMenuText } from "./menu.js";
 import { pickThree, flavorChips, favoriteHere } from "./picks.js";
 import { sound, isMuted } from "./sound.js";
 
@@ -34,7 +35,7 @@ document.addEventListener("pointerdown", () => sound.wake(), { capture: true });
 const SPEAKER_ON = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>';
 const SPEAKER_OFF = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
 const drawSpeaker = () => ($("sound-btn").innerHTML = isMuted() ? SPEAKER_OFF : SPEAKER_ON);
-$("sound-btn").onclick = () => { const m = sound.toggle(); drawSpeaker(); toast(m ? "Sound off" : "Sound on"); };
+$("sound-btn").onclick = () => { const m = sound.toggle(); drawSpeaker(); toast(m ? "sound off" : "sound on"); };
 drawSpeaker();
 
 // ---------- 1. Search for a place (free OpenStreetMap search, no key needed) ----------
@@ -47,30 +48,29 @@ $("search").addEventListener("input", () => {
 });
 
 async function findPlaces(q) {
-  const typed = `<li><button data-name="${esc(q)}" data-addr=""><b>Use “${esc(q)}”</b><span>search the web for exactly what I typed</span></button></li>`;
   let rows = "";
   try {
     const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=7`);
     const data = await res.json();
     rows = data.features.map(({ properties: p }) => {
       const addr = [[p.housenumber, p.street].filter(Boolean).join(" "), p.city || p.town || p.village, p.state, p.country].filter(Boolean).join(", ");
-      return p.name ? `<li><button data-name="${esc(p.name)}" data-addr="${esc(addr)}"><b>${esc(p.name)}</b><span>${esc(addr)}</span></button></li>` : "";
+      return p.name ? `<li><button data-name="${esc(p.name)}" data-addr="${esc(addr)}" data-osm="${esc(p.osm_type + p.osm_id)}"><b>${esc(p.name)}</b><span>${esc(addr)}</span></button></li>` : "";
     }).join("");
-  } catch { /* offline or search down: the typed option still works */ }
-  if ($("search").value.trim() === q) $("results").innerHTML = rows + typed;
+  } catch { /* offline or search down */ }
+  if ($("search").value.trim() === q) $("results").innerHTML = rows || `<li class="none">can't find that spot on the map. try adding the city, like “yi fang tempe”.</li>`;
 }
 
 $("results").addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   sound.tap();
-  openPlace({ name: b.dataset.name, address: b.dataset.addr });
+  openPlace({ name: b.dataset.name, address: b.dataset.addr, osm: b.dataset.osm });
 });
 
 // ---------- 2. Picks ----------
 let place = null, menu = null, chosen = [], shown = [];
 
-async function openPlace(p, photo) {
+async function openPlace(p) {
   place = p; menu = null; chosen = []; shown = [];
   show("picks-view");
   $("place-name").textContent = p.name;
@@ -79,34 +79,38 @@ async function openPlace(p, photo) {
 
   const fav = favoriteHere(journal(), p.name);
   $("favorite").hidden = !fav;
-  if (fav) $("favorite").textContent = `Last time you loved the ${fav.drinkName} here (${fav.rating}/10). Want it again?`;
+  if (fav) $("favorite").textContent = `last time you loved the ${fav.drinkName} here (${fav.rating}/10). want it again?`;
 
   if (!aiKey()) {
-    $("status").innerHTML = "First, add your free AI key in Settings so I can read menus.";
+    $("status").textContent = "first, add your free ai key in settings so i can read menus.";
     $("settings").showModal();
     return;
   }
   // Each place's menu is saved for the day, so coming back doesn't use up free AI searches.
   const cacheKey = `drekka-menu:${p.name}|${p.address}`.toLowerCase();
-  const cached = !photo && store.get(cacheKey, null);
+  const cached = store.get(cacheKey, null);
   if (cached && cached.day === today()) { menu = cached.menu; return showPicks(); }
-  // Google's free AI can't search the web, so the menu comes from a photo or a screenshot.
-  if (!photo) {
-    $("status").textContent = "Snap the menu, or pick a screenshot of it (from Google Maps, their website or Instagram), and I'll find the rarest drinks.";
-    return;
-  }
 
-  $("status").innerHTML = `<span class="dots-loading">${photo ? "Reading your photo" : "Reading their menu"}</span>`;
+  // Find their website, open the menu pages, then let the ai pick out the drinks.
+  const say = (t) => { if (place === p) $("status").innerHTML = `<span class="dots-loading">${t}</span>`; };
+  say("finding their menu");
+  const slow = setTimeout(() => say("still reading, some menus take a little while"), 12000);
   try {
-    menu = await readMenu(aiKey(), p, photo);
+    const got = await fetchMenuText(p);
+    if (!got) { clearTimeout(slow); if (place === p) $("status").textContent = "couldn't find this place's menu online. try another spot nearby."; return; }
+    clearTimeout(slow);
+    say("picking the rarest drinks");
+    menu = await readMenu(aiKey(), p, got.pages);
   } catch (err) {
+    clearTimeout(slow);
     if (place !== p) return;
     $("status").textContent = err.message;
     return;
   }
+  clearTimeout(slow);
   if (place !== p) return; // they already moved on to another place
   if (!menu.found) {
-    $("status").textContent = "I couldn't find a drink menu online for this place. Snap a photo of the menu and I'll read it.";
+    $("status").textContent = "found their website, but no drinks on it. try another spot nearby.";
     return;
   }
   store.set(cacheKey, { day: today(), menu });
@@ -116,7 +120,7 @@ async function openPlace(p, photo) {
 function showPicks() {
   const picks = pickThree(menu.drinks, journal(), place.name, chosen, shown);
   if (!picks.length) {
-    $("status").textContent = shown.length ? "That's every drink that fits. Tap different flavors, or start over." : "No drinks match those flavors here.";
+    $("status").textContent = shown.length ? "that's every drink that fits. tap different flavors, or start over." : "no drinks match those flavors here.";
     $("cards").innerHTML = "";
   } else {
     $("status").textContent = "";
@@ -127,7 +131,7 @@ function showPicks() {
   $("after-picks").hidden = false;
   drawChips();
   const src = (menu.sources || []).map((s) => `<a href="${esc(s.uri)}" target="_blank" rel="noopener">${esc(s.title || "menu")}</a>`).join(", ");
-  $("menu-note").innerHTML = `${esc((menu.menuNote || "").replace(/[.\s]+$/, ""))}${src ? ` · Sources: ${src}` : ""}. Menus change, so ask if it's still available.`;
+  $("menu-note").innerHTML = `${src ? `from ${src}. ` : ""}menus change, so ask if it's still available.`;
 }
 
 function card({ kind, label, drink: d }) {
@@ -137,8 +141,8 @@ function card({ kind, label, drink: d }) {
     <h3>${esc(d.name)}</h3>
     ${d.description ? `<p class="desc">${esc(d.description)}</p>` : ""}
     ${d.why ? `<p class="why">${esc(d.why)}</p>` : ""}
-    <div class="meta"><span class="rarity" title="Uniqueness ${d.uniqueness} of 10">${dots}&nbsp;${d.uniqueness}/10 unique</span><span>${esc(d.price || "")}</span></div>
-    <button class="ink-btn ghost have" data-drink="${esc(d.name)}">I'm having this · add to journal</button>
+    <div class="meta"><span class="rarity" title="uniqueness ${d.uniqueness} of 10">${dots}&nbsp;${d.uniqueness}/10 unique</span><span>${esc(d.price || "")}</span></div>
+    <button class="ink-btn ghost have" data-drink="${esc(d.name)}">i'm having this · add to journal</button>
   </article>`;
 }
 
@@ -165,23 +169,18 @@ $("chips").addEventListener("click", (e) => {
 $("more-btn").onclick = () => { sound.tap(); showPicks(); };
 $("back-btn").onclick = () => { place = null; show("search-view"); $("search").focus(); };
 
-// Snap a photo of the menu: always today's real menu, in any language.
-$("menu-photo").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  e.target.value = "";
-  if (!file || !place) return;
-  const base64 = (await shrink(file, 1600, 0.85)).split(",")[1];
-  openPlace(place, { type: "image/jpeg", base64 });
-});
-
 // Make a picture smaller so it saves and sends quickly. Returns a data URL.
-function shrink(fileOrVideo, size, quality) {
+// vintage = true gives it an old journal photo look: black and white, warm sepia, grain, dark corners.
+function shrink(fileOrVideo, size, quality, vintage = false) {
   return new Promise((resolve) => {
     const draw = (src, w, h) => {
       const s = Math.min(1, size / Math.max(w, h));
       const c = document.createElement("canvas");
       c.width = Math.round(w * s); c.height = Math.round(h * s);
-      c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+      const g = c.getContext("2d");
+      if (vintage) g.filter = "grayscale(1) sepia(0.45) contrast(1.15) brightness(0.97)";
+      g.drawImage(src, 0, 0, c.width, c.height);
+      if (vintage) agePhoto(g, c.width, c.height);
       resolve(c.toDataURL("image/jpeg", quality));
     };
     if (fileOrVideo instanceof HTMLVideoElement) return draw(fileOrVideo, fileOrVideo.videoWidth, fileOrVideo.videoHeight);
@@ -189,6 +188,16 @@ function shrink(fileOrVideo, size, quality) {
     img.onload = () => { draw(img, img.naturalWidth, img.naturalHeight); URL.revokeObjectURL(img.src); };
     img.src = URL.createObjectURL(fileOrVideo);
   });
+}
+
+function agePhoto(g, w, h) {
+  g.filter = "none";
+  const img = g.getImageData(0, 0, w, h), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 26; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  g.putImageData(img, 0, 0);
+  const v = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.72);
+  v.addColorStop(0, "rgba(40,25,10,0)"); v.addColorStop(1, "rgba(40,25,10,0.55)");
+  g.fillStyle = v; g.fillRect(0, 0, w, h);
 }
 
 // ---------- 3. The journal page (opens like a book) ----------
@@ -236,7 +245,7 @@ function setPhoto(dataUrl) {
 
 $("snap-btn").onclick = async () => {
   if (!stream) return;
-  setPhoto(await shrink($("cam"), 360, 0.75));
+  setPhoto(await shrink($("cam"), 360, 0.75, true));
   stopCamera(); sound.tap();
 };
 $("skip-btn").onclick = async () => {
@@ -253,7 +262,7 @@ async function openCameraAgain() {
     $("cam").srcObject = stream; $("cam").hidden = false; $("snap-btn").hidden = false;
   } catch { $("sketch").hidden = false; $("upload-btn").hidden = false; }
 }
-$("upload").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) setPhoto(await shrink(f, 360, 0.75)); });
+$("upload").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) setPhoto(await shrink(f, 360, 0.75, true)); });
 
 // Rating dots 1-10 (this is what Drekka learns your taste from)
 function drawDots() {
@@ -288,8 +297,8 @@ $("clear-scribble").onclick = clearScribble;
 $("book-close").onclick = () => closeBook();
 $("save-entry").onclick = () => {
   const name = $("e-name").value.trim();
-  if (!name) { $("e-name").focus(); return toast("Give the drink a name first"); }
-  if (!draft.rating) return toast("Tap a number to rate it");
+  if (!name) { $("e-name").focus(); return toast("give the drink a name first"); }
+  if (!draft.rating) return toast("tap a number to rate it");
   const entry = {
     id: Date.now(), date: today(), drinkName: name,
     placeName: draft.placeName || "", placeAddr: draft.placeAddr || "",
@@ -297,9 +306,9 @@ $("save-entry").onclick = () => {
     rating: draft.rating, note: $("e-note").value.trim(), photo: draft.photo,
     scribble: scribbled ? pad.toDataURL("image/png") : "",
   };
-  if (!store.set("drekka-journal", [entry, ...journal()])) return toast("Your phone is out of space for photos");
+  if (!store.set("drekka-journal", [entry, ...journal()])) return toast("your phone is out of space for photos");
   sound.save();
-  closeBook(() => { toast("Skál! Saved to your journal"); if (!$("journal-view").hidden) drawJournal(); });
+  closeBook(() => { toast("skál! saved to your journal"); if (!$("journal-view").hidden) drawJournal(); });
 };
 
 // ---------- Journal list ----------
@@ -316,11 +325,11 @@ function drawJournal() {
       ${e.scribble ? `<img class="scrib" src="${e.scribble}" alt="">` : ""}
       <div class="score">${e.rating}/10 <button class="link-btn del" data-id="${e.id}">remove</button></div>
       ${e.note ? `<div class="note">${esc(e.note)}</div>` : ""}
-    </div>`).join("") : `<p class="empty">Your journal is empty. Find a drink, then tap “add to journal”.</p>`;
+    </div>`).join("") : `<p class="empty">your journal is empty. find a drink, then tap “add to journal”.</p>`;
 }
 $("entries").addEventListener("click", (e) => {
   const b = e.target.closest(".del");
-  if (!b || !confirm("Remove this drink from your journal?")) return;
+  if (!b || !confirm("remove this drink from your journal?")) return;
   store.set("drekka-journal", journal().filter((x) => x.id !== +b.dataset.id));
   drawJournal();
 });
@@ -333,12 +342,12 @@ $("settings-btn").onclick = () => { $("key-input").value = aiKey(); $("settings"
 $("settings-close").onclick = () => $("settings").close();
 $("key-save").onclick = () => {
   store.set("drekka-key", $("key-input").value.trim());
-  $("settings").close(); toast("Saved");
+  $("settings").close(); toast("saved");
   if (place && !menu) openPlace(place);
 };
 $("clear-data").onclick = () => {
-  if (!confirm("Erase every drink in your journal on this device? This can't be undone.")) return;
-  store.set("drekka-journal", []); drawJournal(); toast("Journal erased");
+  if (!confirm("erase every drink in your journal on this device? this can't be undone.")) return;
+  store.set("drekka-journal", []); drawJournal(); toast("journal erased");
 };
 
 // Works offline and installs like an app.

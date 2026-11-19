@@ -1,4 +1,5 @@
-/* Drekka: an old explorer's field journal. Aged paper, ink, a leather cover. */
+/* drekka: an old explorer's field journal. aged paper, ink, a leather cover.
+   everything is lowercase and handwritten, on purpose. */
 :root {
   --paper: #f1e6cc;
   --paper-dark: #e3d2ad;
@@ -17,11 +18,12 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; min-height: 100vh; color: var(--ink);
-  font-family: "EB Garamond", Georgia, serif; font-size: 18px; line-height: 1.45;
+  font-family: "Caveat", cursive; font-size: 21px; line-height: 1.3; text-transform: lowercase;
   background: var(--noise), radial-gradient(ellipse at 50% 0%, var(--paper) 40%, var(--paper-dark) 100%) fixed;
   background-color: var(--paper);
 }
-button, input, textarea { font: inherit; color: inherit; }
+button, input, textarea { font: inherit; color: inherit; text-transform: lowercase; }
+::placeholder { text-transform: lowercase; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
 
@@ -38,8 +40,8 @@ header.leather {
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
 }
 .brand { text-align: center; }
-.brand h1 { margin: 0; font-family: "IM Fell English", serif; font-weight: 400; font-size: 30px; letter-spacing: 0.04em; line-height: 1; }
-.brand p { margin: 2px 0 0; font-family: "IM Fell English", serif; font-style: italic; font-size: 13px; opacity: 0.8; }
+.brand h1 { margin: 0; font-family: "Pinyon Script", cursive; font-weight: 400; font-size: 38px; line-height: 1; }
+.brand p { margin: 0; font-size: 15px; opacity: 0.8; }
 .header-right { display: flex; gap: 4px; }
 .icon-btn { width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; display: grid; place-items: center; }
 .icon-btn:active { background: rgba(255, 255, 255, 0.12); }
@@ -49,10 +51,10 @@ main { max-width: 640px; margin: 0 auto; padding: 18px 16px 60px; }
 .view { animation: fade 0.35s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } }
 
-h2.ink { font-family: "IM Fell English", serif; font-weight: 400; font-size: 27px; line-height: 1.15; margin: 8px 0 6px; }
+h2.ink { font-family: "Pinyon Script", cursive; font-weight: 400; font-size: 34px; line-height: 1.15; margin: 8px 0 6px; }
 .hand { font-family: "Caveat", cursive; font-size: 22px; color: var(--ink-soft); margin: 6px 0 10px; line-height: 1.2; }
-.addr { color: var(--faded); font-style: italic; margin: 0 0 12px; font-size: 16px; }
-.small { font-size: 15px; color: var(--faded); }
+.addr { color: var(--faded); margin: 0 0 12px; font-size: 18px; }
+.small { font-size: 17px; color: var(--faded); }
 
 /* Search */
 #search, #key-input, textarea, .drink-label {
@@ -66,20 +68,20 @@ h2.ink { font-family: "IM Fell English", serif; font-weight: 400; font-size: 27p
 }
 .results li button:active { background: rgba(122, 46, 31, 0.08); }
 .results b { font-weight: 600; }
-.results span { display: block; color: var(--faded); font-size: 15px; font-style: italic; }
+.results span { display: block; color: var(--faded); font-size: 17px; }
+.results .none { color: var(--faded); padding: 8px 2px; }
 
 /* Buttons */
 .ink-btn {
   display: block; width: 100%; margin: 14px 0 0; padding: 12px; text-align: center;
   border: 1.5px solid var(--ink); border-radius: 6px; background: var(--ink); color: var(--paper);
-  font-family: "IM Fell English", serif; font-size: 19px;
+  font-size: 22px;
 }
 .ink-btn.ghost { background: transparent; color: var(--ink); border-style: dashed; }
 .ink-btn:active { transform: translateY(1px); }
-.link-btn { border: 0; background: none; padding: 4px 0; color: var(--ink-soft); font-style: italic; }
+.link-btn { border: 0; background: none; padding: 4px 0; color: var(--ink-soft); }
 .link-btn.danger { color: var(--accent); }
 .mini { border: 1px solid var(--line); background: rgba(255, 252, 240, 0.7); border-radius: 4px; padding: 3px 9px; font-size: 14px; }
-.photo-btn { cursor: pointer; margin-top: 18px; }
 
 /* Status / loading */
 .status { font-family: "Caveat", cursive; font-size: 23px; color: var(--ink-soft); min-height: 4px; }
@@ -97,10 +99,10 @@ h2.ink { font-family: "IM Fell English", serif; font-weight: 400; font-size: 27p
 .card:nth-child(2) { animation-delay: 0.12s; transform: rotate(0.4deg); }
 .card:nth-child(3) { animation-delay: 0.24s; transform: rotate(-0.5deg); }
 @keyframes pin { from { opacity: 0; transform: translateY(14px) rotate(-2deg); } }
-.card .kind { font-family: "Caveat", cursive; font-size: 21px; color: var(--accent); margin: 0; }
-.card h3 { font-family: "IM Fell English", serif; font-weight: 400; font-size: 24px; margin: 0 0 2px; line-height: 1.15; }
+.card .kind { font-size: 19px; color: var(--accent); margin: 0; letter-spacing: 0.03em; }
+.card h3 { font-family: "Pinyon Script", cursive; font-weight: 400; font-size: 30px; margin: 0 0 2px; line-height: 1.15; }
 .card .desc { margin: 4px 0; }
-.card .why { font-style: italic; color: var(--ink-soft); margin: 4px 0; }
+.card .why { color: var(--ink-soft); margin: 4px 0; }
 .card .meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; font-size: 15px; color: var(--faded); }
 .rarity { display: inline-flex; gap: 3px; align-items: center; }
 .rarity i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--ink-soft); display: inline-block; }
@@ -119,8 +121,8 @@ h2.ink { font-family: "IM Fell English", serif; font-weight: 400; font-size: 27p
 .entry:nth-child(even) { transform: rotate(0.7deg); }
 .entry .pic { aspect-ratio: 1; background: #fffaf0; border: 6px solid #fffaf0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); display: grid; place-items: center; overflow: hidden; }
 .entry .pic img, .entry .pic .sketch { width: 100%; height: 100%; object-fit: cover; }
-.entry h4 { font-family: "IM Fell English", serif; font-weight: 400; font-size: 19px; margin: 8px 0 0; line-height: 1.1; }
-.entry .where { font-size: 14px; color: var(--faded); font-style: italic; }
+.entry h4 { font-family: "Pinyon Script", cursive; font-weight: 400; font-size: 23px; margin: 8px 0 0; line-height: 1.1; }
+.entry .where { font-size: 16px; color: var(--faded); }
 .entry .scrib { width: 100%; display: block; margin-top: 4px; }
 .entry .score { font-family: "Caveat", cursive; font-size: 24px; color: var(--accent); }
 .entry .note { font-family: "Caveat", cursive; font-size: 19px; color: var(--ink-soft); line-height: 1.1; }
@@ -141,13 +143,14 @@ h2.ink { font-family: "IM Fell English", serif; font-weight: 400; font-size: 27p
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); border: 2px dashed rgba(243, 227, 195, 0.3);
   transition: transform 0.75s cubic-bezier(.6, .05, .3, 1);
 }
-.cover-title { font-family: "IM Fell English", serif; font-size: 44px; letter-spacing: 0.06em; }
+.cover-title { font-family: "Pinyon Script", cursive; font-size: 58px; }
 .cover .key { position: absolute; right: 18px; top: 50%; width: 70px; fill: none; stroke: var(--brass); stroke-width: 2.4; }
 .book.open .cover { transform: rotateY(-178deg); pointer-events: none; }
 .close { position: absolute; top: 6px; right: 10px; border: 0; background: none; font-size: 28px; color: var(--ink-soft); }
-.drink-label { font-family: "IM Fell English", serif; font-size: 25px; background: transparent; border: 0; border-bottom: 1.5px solid var(--line); border-radius: 0; padding: 4px 2px; margin-right: 26px; width: calc(100% - 26px); }
+.drink-label { font-family: "Pinyon Script", cursive; font-size: 24px; background: transparent; border: 0; border-bottom: 1.5px solid var(--line); border-radius: 0; padding: 4px 2px; margin-right: 26px; width: calc(100% - 26px); }
 .page-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
 .polaroid { width: 150px; flex: none; background: #fffaf0; padding: 7px 7px 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); transform: rotate(-2deg); }
+.polaroid video { filter: grayscale(1) sepia(0.45) contrast(1.15) brightness(0.97); }
 .polaroid video, .polaroid img, .polaroid .sketch { width: 136px; height: 136px; object-fit: cover; display: block; background: #2a2018; }
 .sketch svg { width: 100%; height: 100%; display: block; }
 .sketch { background: #fffaf0 !important; fill: none; stroke: var(--ink-soft); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
