@@ -43,6 +43,17 @@ async function ask(key, parts, json = true) {
   return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
 }
 
+// Reads the ai's json even when it forgot a closing bracket or two at the very end (it sometimes does).
+function parseLoose(out) {
+  const start = out.indexOf("{");
+  if (start < 0) return null;
+  const body = out.slice(start).trim().replace(/,\s*$/, "");
+  for (const ending of ["", "}", "]}", "]]}", "\"]]}", "\"]]]}"]) {
+    try { return JSON.parse(body + ending); } catch { /* try the next ending */ }
+  }
+  try { return JSON.parse(out.slice(start, out.lastIndexOf("}") + 1)); } catch { return null; }
+}
+
 // place: { name, address }. pages: [{ url, text }] from menu.js (most drink-filled first)
 export async function readMenu(key, place, pages) {
   let budget = 30000;
@@ -57,7 +68,7 @@ export async function readMenu(key, place, pages) {
   let menu;
   for (let attempt = 0; attempt < 2 && !menu; attempt++) {
     const out = await ask(key, parts);
-    try { menu = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1)); } catch { /* try again */ }
+    menu = parseLoose(out);
   }
   if (!menu) throw new Error("couldn't read the menu this time. try again.");
   if (!menu.found || !menu.d?.length) return { found: false, drinks: [] };
