@@ -174,6 +174,7 @@ const HINTS = {
   match: "the one that fits your taste best, from your quiz and ratings",
   signature: "what this place is known for",
   "wild card": "a surprise outside your usual, on purpose",
+  steal: "a lovely pick that's easier on the wallet",
 };
 
 // Adds 3 picks to the page. title: what changed ("3 more", "mango", "budget"...), empty for the first ones.
@@ -187,6 +188,15 @@ function showPicks(title = "") {
   if (!picks.length) {
     groups.push({ title, empty: chosen.length || price ? "nothing here matches that. try another flavor or price." : "that's every drink here that fits you." });
   } else {
+    // Plus a "steal": the best fit among this menu's lower prices (when it has prices and
+    // no price is chosen yet), for anyone who'd like to spend less.
+    if (tiers && !price) {
+      const cheaper = drinks.filter((d) => priceOf(d) != null && priceOf(d) <= tiers.low);
+      const skip = [...shown, ...picks.map((p) => p.drink.name)];
+      const [first, second] = pickThree(cheaper, journal(), place.name, chosen, skip, prefs);
+      const best = second || first;
+      if (best) picks.push({ kind: "steal", label: "steal", drink: best.drink });
+    }
     shown.push(...picks.map((p) => p.drink.name));
     groups.push({ title, picks });
     sound.reveal();

@@ -3,6 +3,7 @@
 //   2. match      - leans toward your quiz answers and the flavors you rated high
 //      signature  - the place's signature (if we know nothing about your taste yet)
 //   3. wild card  - a rare drink outside your usual taste, on purpose
+// (app.js adds a 4th, "steal": the best fit among the menu's lower prices.)
 
 // What you like: flavor -> score (positive = you like it). Starts from the welcome quiz
 // (prefs, see quiz.js profileFrom) and keeps learning from every rating in your journal.
