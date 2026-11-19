@@ -310,7 +310,7 @@ $("save-entry").onclick = () => {
   };
   if (!store.set("drekka-journal", [entry, ...journal()])) return toast("your phone is out of space for photos");
   sound.save();
-  closeBook(() => { toast("skál! saved to your journal"); if (!$("journal-view").hidden) drawJournal(); });
+  closeBook(() => { toast("cheers! saved to your journal"); if (!$("journal-view").hidden) drawJournal(); });
 };
 
 // ---------- Journal list ----------

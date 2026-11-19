@@ -147,7 +147,7 @@ export function runQuiz(sound, saved, done) {
   function finish() {
     sound.save();
     box.innerHTML = `<div class="quiz-page done">
-      <h2 class="ink">${me.name ? `skál, ${esc(me.name)}!` : "skál!"}</h2>
+      <h2 class="ink">${me.name ? `cheers, ${esc(me.name)}!` : "cheers!"}</h2>
       <p class="hand big">${esc(summary(me))}</p>
       <p class="hand">i'll keep learning from every drink you rate.</p>
       <button class="ink-btn" id="quiz-start">let's find a drink</button>

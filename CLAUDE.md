@@ -1,4 +1,4 @@
-# Drekka: notes for Claude Code
+# drekka: notes for Claude Code
 
 Suhitha's own app idea: find the most unique drink at any place, plus a scrapbook-style drink journal. Plain HTML, CSS and JavaScript, installable as a home-screen app (PWA). The plan is to wrap it for the App Store and Google Play later, once she's tested it.
 
@@ -13,6 +13,7 @@ Suhitha's own app idea: find the most unique drink at any place, plus a scrapboo
 - `sw.js`, `manifest.json`, `icon*`: offline support and install.
 
 ## Rules
+- No faroese references anywhere (she isn't from there): no "to drink, in faroese", no "skál". The name stays all lowercase: drekka.
 - Her design rules: every word lowercase (CSS text-transform on body), cursive fonts only (Pinyon Script + Caveat), labels as one_word (rare_find, house_fave/your_type, wild_card), vintage look, old-photo filter on drink pictures.
 - Never ask people to photograph the menu. She rejected that firmly: the point is deciding before you reach the counter.
 - Never invent drinks. The AI prompt says to include only drinks actually found. Keep that.
