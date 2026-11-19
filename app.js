@@ -37,18 +37,25 @@ for (const ev of ["pointerdown", "touchend", "click"]) document.addEventListener
 // ---------- Menus: from drekka's server, or (testing) with your own keys ----------
 const placeKey = (p) => (p.osm || `${p.name}|${p.address}`).toLowerCase();
 const pending = new Map(); // lookups already started (so tapping a result reuses the head start)
-function getMenu(p) {
+// early = a head start while you're still on the search screen: free sources only, never the
+// paid google search. If an early look finds nothing, tapping the place looks again with everything.
+function askServer(p, early) {
+  return fetch(API + "/menu", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...p, early }) })
+    .then((r) => r.json()).then((m) => { if (m.error) throw new Error(m.error); return { ...m, early }; });
+}
+function getMenu(p, early = false) {
   const k = placeKey(p);
   if (!pending.has(k)) {
     const job = API
-      ? fetch(API + "/menu", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) })
-          .then((r) => r.json()).then((m) => { if (m.error) throw new Error(m.error); return m; })
+      ? askServer(p, early)
       : fetchMenuText(p, { jinaKey: store.get("drekka-jina", "") })
           .then((got) => (got ? readMenu(aiKey(), p, got.pages) : { found: false, drinks: [] }));
     job.catch(() => pending.delete(k)); // a failed lookup can be tried again
     pending.set(k, job);
   }
-  return pending.get(k);
+  if (early) return pending.get(k);
+  // A real tap: reuse the head start, unless it was a free-only look that came up empty.
+  return pending.get(k).then((m) => (m.early && !m.found ? askServer(p, false) : m));
 }
 
 // ---------- Sound button ----------
@@ -98,17 +105,34 @@ async function findPlaces(q) {
       const addr = [[p.housenumber, p.street].filter(Boolean).join(" "), p.city || p.town || p.village, p.state, p.country].filter(Boolean).join(", ");
       return p.name ? `<li><button data-name="${esc(p.name)}" data-addr="${esc(addr)}" data-osm="${esc(p.osm_type + p.osm_id)}"><b>${esc(p.name)}</b><span>${esc(addr)}</span></button></li>` : "";
     }).join("");
+    // Does any map result actually carry the name you typed? ("honey to a bee" vs "killer bee honey": no)
+    mapHasIt = data.features.some((f) => f.properties.name && sameName(f.properties.name, q));
     // Start reading the top result's menu right away, so it's (nearly) ready when it's tapped.
     const top = data.features.find((f) => f.properties.name)?.properties;
-    if (API && top && $("search").value.trim() === q) {
+    if (API && top && mapHasIt && $("search").value.trim() === q) {
       const addr = [[top.housenumber, top.street].filter(Boolean).join(" "), top.city || top.town || top.village, top.state, top.country].filter(Boolean).join(", ");
-      getMenu({ name: top.name, address: addr, osm: top.osm_type + top.osm_id }).catch(() => {});
+      getMenu({ name: top.name, address: addr, osm: top.osm_type + top.osm_id }, true).catch(() => {});
     }
   } catch { /* offline or search down */ }
+  if ($("search").value.trim() !== q) return; // they kept typing
   // The map doesn't know every place (new or small spots are often missing), so you can always
-  // look a name up on the web instead. Adding the city helps, like "casa tempe".
-  const anyway = `<li><button class="anyway" data-name="${esc(q)}" data-addr="" data-osm=""><b>not here? look up “${esc(q)}” anyway</b><span>${/\s/.test(q) ? "drekka will search the web for its menu" : "tip: add the city, like “" + esc(q) + " tempe”"}</span></button></li>`;
-  if ($("search").value.trim() === q) $("results").innerHTML = rows + anyway;
+  // look a name up on the web instead. When the map has nothing by that name, that row goes on top
+  // and the web search starts by itself once you stop typing, so it's ready (or nearly) when you tap.
+  const anyway = `<li><button class="anyway" data-name="${esc(q)}" data-addr="" data-osm=""><b>${mapHasIt ? "not here? look up" : "search the web for"} “${esc(q)}”</b><span>${mapHasIt ? "drekka will search the web for its menu" : "the map doesn't know it yet, so drekka is already looking online"}</span></button></li>`;
+  $("results").innerHTML = mapHasIt ? rows + anyway : anyway + rows;
+  if (API && !mapHasIt && q.split(/\s+/).length >= 2) {
+    clearTimeout(webTimer);
+    webTimer = setTimeout(() => { if ($("search").value.trim() === q) getMenu({ name: q, address: "", osm: "" }, true).catch(() => {}); }, 1200);
+  }
+}
+let mapHasIt = false, webTimer;
+// Loose name match: "honey to a bee" ~ "Honey 2 A Bee", "swig" ~ "Swig Tempe".
+const squashName = (t) => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ")
+  .replace(/\b(to|too|two)\b/g, "2").replace(/\b(for|four)\b/g, "4").replace(/\b(and|n|the)\b/g, " ").replace(/\s+/g, "");
+function sameName(name, q) {
+  const a = squashName(name), b = squashName(q);
+  const head = squashName(q.trim().split(/\s+/).slice(0, -1).join(" ")); // "yi fang tempe" -> "yifang"
+  return a.includes(b) || b.includes(a) || (head.length > 2 && a.startsWith(head));
 }
 
 $("results").addEventListener("click", (e) => {

@@ -95,8 +95,17 @@ export default {
           }
           return reply({ ...cached, cached: true }, origin);
         }
-        let menu = await freeMenu(env, place);
-        if (!menu.found) menu = await lastResort(env, place);
+        // early = a head start while the person is still on the search screen: free sources only.
+        const early = input.early === true;
+        let menu = await freeMenu(env, place, !early);
+        // A menu with under 5 drinks is too thin to pick from (delivery sites often show just a few):
+        // a real tap tries google too and keeps whichever found more; an early look just says "not yet".
+        const thin = (m) => !m.found || m.drinks.length < 5;
+        if (thin(menu) && early) return reply({ found: false, drinks: [] }, origin);
+        if (thin(menu)) {
+          const more = await lastResort(env, place);
+          if (more.found && more.drinks.length > (menu.found ? menu.drinks.length : 0)) menu = more;
+        }
         if (menu.found) await save(menu);
         return reply(menu, origin);
       }

@@ -102,6 +102,18 @@ function namesPlace(page, name) {
   return need.every((w) => hay.includes(w) || hay.includes(w.replace(/s$/, "")));
 }
 
+// Stricter: the name appears as one phrase, so "honey to a bee" matches "Honey 2 A Bee" and
+// "honey-2a-bee", but not a honey bee cocktail or "Honey Bee's Breakfast".
+// Number words count as digits (to/too/two = 2, for/four = 4); "and", "&" and "n" are skipped.
+const squash = (t) => plain(t).replace(/[^a-z0-9]+/g, " ")
+  .replace(/\b(to|too|two)\b/g, "2").replace(/\b(for|four)\b/g, "4").replace(/\b(and|n)\b/g, " ").replace(/\s+/g, "");
+function namesPlaceExactly(page, name) {
+  const core = plain(name).split(/[^a-z0-9]+/).filter(Boolean);
+  while (core.length > 1 && GENERIC.has(core[core.length - 1])) core.pop(); // "... coffee" -> "..."
+  const want = squash(core.join(" "));
+  return want.length > 3 && squash(page.url + " " + page.text).includes(want);
+}
+
 // Search the web for the menu (needs a jina key). Two searches at once, worded differently; then
 // the most promising results are opened in full, since search results only carry a slice of each page.
 async function fromSearch(place, jinaKey) {
@@ -118,10 +130,14 @@ async function fromSearch(place, jinaKey) {
       return url && !/facebook|instagram|tiktok|pinterest|youtube/.test(url) ? { url, text: chunk.slice(0, 15000) } : null;
     }).filter(Boolean);
   };
-  const found = (await Promise.allSettled([ask(`${place.name} ${city} menu`), ask(`${place.name} ${city} drinks beverages menu`)]))
+  let found = (await Promise.allSettled([ask(`${place.name} ${city} menu`), ask(`${place.name} ${city} drinks beverages menu`)]))
     .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
     .filter((p, i, all) => all.findIndex((x) => x.url === p.url) === i)
     .filter((p) => namesPlace(p, place.name));
+  // If some pages name the place as a whole phrase, keep only those, so look-alike places
+  // ("honey bee" anything) don't get mixed into the menu.
+  const exact = found.filter((p) => namesPlaceExactly(p, place.name));
+  if (exact.length) found = exact;
   // Open the best open (not walled) results in full.
   const open = found.filter((p) => !WALLED.test(p.url)).sort((a, b) => drinkiness(b.text) - drinkiness(a.text)).slice(0, 3);
   const full = await Promise.allSettled(open.map((p) => read(p.url, jinaKey)));
