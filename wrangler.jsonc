@@ -1,0 +1,12 @@
+// drekka on Cloudflare (free): the app's pages, plus the small server under /api/ (worker/index.js).
+// Deploy from this folder: npx wrangler deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "drekka",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-18",
+  "assets": { "directory": ".", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  // Remembered menus and feedback
+  "kv_namespaces": [{ "binding": "DREKKA", "id": "dfaf76ef4d0f44e7a69e821a3003f593" }],
+  "observability": { "enabled": true }
+}

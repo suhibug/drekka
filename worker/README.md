@@ -1,12 +1,10 @@
 # drekka server
 
 A free Cloudflare Worker that reads menus for the app, so people don't need their own keys.
+It's deployed together with the app from the main folder (see `../wrangler.jsonc`), at /api/.
 
-One-time setup (in this folder):
-1. `npx wrangler login`  (opens the browser; sign in to your free Cloudflare account)
-2. `npx wrangler kv namespace create DREKKA`, then put the id it prints into `wrangler.toml`
-3. `npx wrangler secret put GEMINI_KEY` and paste the Google AI key
-4. `npx wrangler secret put JINA_KEY` and paste the Jina key
-5. `npx wrangler deploy`
+Deploy (from the drekka folder): `npx wrangler deploy`
+Keys are Cloudflare secrets: `npx wrangler secret put GEMINI_KEY` and `npx wrangler secret put JINA_KEY`.
+For testing on this computer, they go in `../.dev.vars` (never committed or uploaded).
 
 Read feedback: `npx wrangler kv key list --binding DREKKA --prefix feedback: --remote`

@@ -1,14 +1,14 @@
-// drekka's small server (a free Cloudflare Worker). It holds the AI and Jina keys, so people
+// drekka's small server (a free Cloudflare Worker, at /api/ next to the app's pages). It holds the AI and Jina keys, so people
 // using the app never need their own, and it remembers menus so a place found once loads in a
 // second for everyone after that.
-//   POST /menu      { name, address, osm }  -> { found, drinks, sources }
-//   POST /rating    { image }               -> { rating }   (reads a scribbled "8/10")
-//   POST /feedback  { ...answers }          -> { ok }       (saved for suhi to read)
+//   POST /api/menu      { name, address, osm }  -> { found, drinks, sources }
+//   POST /api/rating    { image }               -> { rating }   (reads a scribbled "8/10")
+//   POST /api/feedback  { ...answers }          -> { ok }       (saved for suhi to read)
 // Keys live in Cloudflare as secrets (GEMINI_KEY, JINA_KEY), never in this code.
 import { fetchMenuText } from "../menu.js";
 import { readMenu, readRating } from "../ai.js";
 
-const ALLOWED = ["https://suhibug.github.io", "http://127.0.0.1:8765", "http://localhost:8000"];
+const ALLOWED = ["https://drekka.drekka.workers.dev", "https://suhibug.github.io", "http://127.0.0.1:8765", "http://127.0.0.1:8787", "http://localhost:8000"];
 const MENU_DAYS = 3; // menus change, so remembered menus expire after a few days
 
 function reply(body, origin, status = 200) {
@@ -25,10 +25,11 @@ function reply(body, origin, status = 200) {
 
 export default {
   async fetch(req, env) {
+    const path = new URL(req.url).pathname.replace(/^\/api/, "");
+    if (!new URL(req.url).pathname.startsWith("/api/")) return env.ASSETS.fetch(req); // the app's pages
     const origin = req.headers.get("Origin") || "";
     if (req.method === "OPTIONS") return reply({}, origin);
     if (req.method !== "POST" || !ALLOWED.includes(origin)) return reply({ error: "not allowed" }, origin, 403);
-    const path = new URL(req.url).pathname;
     let input;
     try { input = await req.json(); } catch { return reply({ error: "bad request" }, origin, 400); }
 
