@@ -47,6 +47,8 @@ async function read(url, jinaKey) {
     headers: { "X-With-Links-Summary": "true", "X-Retain-Images": "none", "X-Timeout": "15", ...extra },
     signal: AbortSignal.timeout(25000),
   });
+  // 401/402/403 with a key = its balance ran out: the reader still works without one (just slower).
+  if (jinaKey && [401, 402, 403].includes(res.status)) return read(url, "");
   if (!res.ok) throw new Error("reader " + res.status);
   return res.text();
 }

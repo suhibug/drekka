@@ -15,6 +15,8 @@ const FRESH_DAYS = 7;
 // Google Search (paid key, GOOGLE_KEY) is the last resort when the free search finds nothing.
 // About 1 cent each; suhi's limit is $3 a month, so it stops after this many in a month.
 const GOOGLE_PER_MONTH = 250;
+// The free ai allows 500 a day; refreshes may use at most this many, leaving the rest for people.
+const REFRESH_PER_DAY = 100;
 
 function reply(body, origin, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -28,20 +30,43 @@ function reply(body, origin, status = 200) {
   });
 }
 
-// The free way: the place's website or web search, read by the free ai.
-async function freeMenu(env, place) {
-  const got = await fetchMenuText(place, { jinaKey: env.JINA_KEY });
-  return got ? readMenu(env.GEMINI_KEY, place, got.pages).catch(() => ({ found: false, drinks: [] })) : { found: false, drinks: [] };
-}
-
-// Google, but only while this month's count is under the limit.
-async function lastResort(env, place) {
-  if (!env.GOOGLE_KEY) return { found: false, drinks: [] };
+// Uses one paid lookup from this month's allowance, if there's a paid key and some left.
+async function spend(env) {
+  if (!env.GOOGLE_KEY) return false;
   const month = "google:" + new Date().toISOString().slice(0, 7);
   const used = +(await env.DREKKA.get(month)) || 0;
-  if (used >= GOOGLE_PER_MONTH) return { found: false, drinks: [] };
+  if (used >= GOOGLE_PER_MONTH) return false;
   await env.DREKKA.put(month, String(used + 1), { expirationTtl: 40 * 86400 });
+  return true;
+}
+
+// The free way: the place's website or web search, read by the free ai. If the free ai is busy
+// (too many people at once), the paid key reads the same pages instead (counted like a google lookup),
+// so people aren't told to wait. canPay = false for background refreshes, which never spend money.
+async function freeMenu(env, place, canPay = true) {
+  const got = await fetchMenuText(place, { jinaKey: env.JINA_KEY });
+  if (!got) return { found: false, drinks: [] };
+  try { return await readMenu(env.GEMINI_KEY, place, got.pages); }
+  catch (err) {
+    if (err.busy && canPay && (await spend(env))) return readMenu(env.GOOGLE_KEY, place, got.pages).catch(() => ({ found: false, drinks: [] }));
+    if (err.busy) throw err;
+    return { found: false, drinks: [] };
+  }
+}
+
+// Google Search, but only while this month's allowance lasts.
+async function lastResort(env, place) {
+  if (!(await spend(env))) return { found: false, drinks: [] };
   return readMenuWithGoogle(env.GOOGLE_KEY, place).catch(() => ({ found: false, drinks: [] }));
+}
+
+// Background refreshes get a daily limit, so they never use up the free ai that people need.
+async function mayRefresh(env) {
+  const day = "refresh:" + new Date().toISOString().slice(0, 10);
+  const done = +(await env.DREKKA.get(day)) || 0;
+  if (done >= REFRESH_PER_DAY) return false;
+  await env.DREKKA.put(day, String(done + 1), { expirationTtl: 2 * 86400 });
+  return true;
 }
 
 export default {
@@ -64,7 +89,7 @@ export default {
         if (cached) {
           if (Date.now() - (cached.savedAt || 0) > FRESH_DAYS * 86400000) {
             // If the re-read finds nothing (site down, or it came from google), the old menu stays.
-            ctx.waitUntil(freeMenu(env, place).then((menu) => menu.found && save(menu)).catch(() => {}));
+            ctx.waitUntil(mayRefresh(env).then((ok) => ok && freeMenu(env, place, false)).then((menu) => menu?.found && save(menu)).catch(() => {}));
           }
           return reply({ ...cached, cached: true }, origin);
         }
@@ -76,7 +101,11 @@ export default {
       if (path === "/rating") {
         const image = String(input.image || "");
         if (!image || image.length > 400000) return reply({ rating: null }, origin);
-        return reply({ rating: await readRating(env.GEMINI_KEY, image) }, origin);
+        const rating = await readRating(env.GEMINI_KEY, image).catch(async (err) => {
+          if (err.busy && (await spend(env))) return readRating(env.GOOGLE_KEY, image);
+          throw err;
+        });
+        return reply({ rating }, origin);
       }
       if (path === "/feedback") {
         const entry = JSON.stringify({ ...input, at: new Date().toISOString() }).slice(0, 4000);

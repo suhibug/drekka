@@ -34,11 +34,11 @@ async function ask(key, parts, json = true, tools = null) {
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify(body),
     });
-    // 404 = model retired, 503 = model busy: try the next one.
-    if (res.status !== 404 && res.status !== 503) { if (res.ok) lastGood = model; break; }
+    // 404 = model retired, 503 = model busy, 429 = this model's free allowance is used up for now.
+    // Each model has its own allowance, so try the next one.
+    if (![404, 429, 503].includes(res.status)) { if (res.ok) lastGood = model; break; }
   }
-  if (res.status === 404 || res.status === 503) throw new Error("google's ai is busy right now. try again in a minute.");
-  if (res.status === 429) throw new Error("lots of people are searching right now. try again in a minute.");
+  if ([404, 429, 503].includes(res.status)) throw Object.assign(new Error("lots of people are searching right now. try again in a minute."), { busy: true });
   if (!res.ok) throw new Error("the ai didn't answer (" + res.status + "). try again in a minute.");
   const data = await res.json();
   const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
@@ -67,9 +67,11 @@ export async function readMenu(key, place, pages) {
   }).join("\n\n");
   const where = `${place.name}${place.address ? ", " + place.address : ""}`;
   const parts = [{ text: `Below is web text about the menu of ${where}. List the drinks on it. Only use pages that are clearly about THIS place (same name; same city if one is given), and ignore pages about any other place, even with a similar name. Only include drinks that are actually written in this text; never invent any. If there are no drinks for this exact place, return {"found": false}.\n${FORMAT}\n\n${text}` }];
-  // Now and then the ai's answer comes back garbled: ask once more before giving up.
+  // Now and then the ai's answer comes back garbled: ask again (the last try uses a different
+  // model) before giving up.
   let menu;
-  for (let attempt = 0; attempt < 2 && !menu; attempt++) {
+  for (let attempt = 0; attempt < 3 && !menu; attempt++) {
+    if (attempt === 2) lastGood = MODELS.find((m) => m !== lastGood);
     const out = await ask(key, parts);
     menu = parseLoose(out);
   }

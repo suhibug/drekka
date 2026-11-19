@@ -9,3 +9,5 @@ Optional `GOOGLE_KEY`: a Gemini key on a billed project, used only for Google Se
 For testing on this computer, they go in `../.dev.vars` (never committed or uploaded).
 
 Read feedback: `npx wrangler kv key list --binding DREKKA --prefix feedback: --remote`
+
+When the free ai is busy (429), the paid key reads the same pages instead, counted in the same monthly allowance. If the Jina key's balance runs out, pages are read without it (search then falls to Google). Check Jina's balance: `curl -s "https://embeddings-dashboard-api.jina.ai/api/v1/api_key/fe_user?api_key=$JINA_KEY"` (wallet.total_balance).
