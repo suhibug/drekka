@@ -4,7 +4,9 @@
 // Note: on a public release the key should move to a small server so people don't need their own.
 
 // Google retires old models often, so try a few in order and remember the first one that answers.
-const MODELS = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.5-flash-lite"];
+// Free tier (Nov 2026): Gemini 3.5 Flash Lite reads photos, 500 a day. Web search is NOT free
+// for Gemini 3 and newer, so looking a menu up by name only works on a paid key.
+const MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash"];
 
 const FORMAT = `Return ONLY JSON, no other text:
 {"found": true, "menuNote": "where the menu came from and how recent it looks, one short line",

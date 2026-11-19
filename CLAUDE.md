@@ -6,7 +6,7 @@ Suhitha's own app idea: find the most unique drink at any place, plus a scrapboo
 - `index.html`, `style.css`: three views (search, picks, journal), the book overlay for logging a drink, and the settings dialog. The look is an old explorer's field journal: aged paper, ink, a leather cover with a key.
 - `app.js`: screens, place search (Photon/OpenStreetMap), per-day menu cache, the journal (localStorage), camera polaroid, scribble pad, rating dots.
 - `picks.js`: pure logic for the 3 picks (unique / made for you or signature / surprise me), the taste profile from ratings, the favorite drink at a place, and flavor chips.
-- `ai.js`: Gemini call (Google Search grounding, or a menu photo). Returns the drinks as JSON with a uniqueness score from 1 to 10 and flavors.
+- `ai.js`: Gemini call. Free tier (Nov 2026): only photos work, via gemini-3.5-flash-lite at 500/day. New accounts can't use 2.5, and Gemini 3+ has 0 free search grounding, so name lookup is off in app.js until there's a paid key or a small menu-fetching server. Returns the drinks as JSON with a uniqueness score from 1 to 10 and flavors.
 - `sound.js`: soft Web Audio sounds and a wandering background melody. Mute is remembered.
 - `sw.js`, `manifest.json`, `icon*`: offline support and install.
 

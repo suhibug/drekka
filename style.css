@@ -79,7 +79,7 @@ h2.ink { font-family: "IM Fell English", serif; font-weight: 400; font-size: 27p
 .link-btn { border: 0; background: none; padding: 4px 0; color: var(--ink-soft); font-style: italic; }
 .link-btn.danger { color: var(--accent); }
 .mini { border: 1px solid var(--line); background: rgba(255, 252, 240, 0.7); border-radius: 4px; padding: 3px 9px; font-size: 14px; }
-.photo-btn { cursor: pointer; margin-top: 22px; font-size: 16px; }
+.photo-btn { cursor: pointer; margin-top: 18px; }
 
 /* Status / loading */
 .status { font-family: "Caveat", cursive; font-size: 23px; color: var(--ink-soft); min-height: 4px; }

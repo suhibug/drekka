@@ -90,6 +90,11 @@ async function openPlace(p, photo) {
   const cacheKey = `drekka-menu:${p.name}|${p.address}`.toLowerCase();
   const cached = !photo && store.get(cacheKey, null);
   if (cached && cached.day === today()) { menu = cached.menu; return showPicks(); }
+  // Google's free AI can't search the web, so the menu comes from a photo or a screenshot.
+  if (!photo) {
+    $("status").textContent = "Snap the menu, or pick a screenshot of it (from Google Maps, their website or Instagram), and I'll find the rarest drinks.";
+    return;
+  }
 
   $("status").innerHTML = `<span class="dots-loading">${photo ? "Reading your photo" : "Reading their menu"}</span>`;
   try {
