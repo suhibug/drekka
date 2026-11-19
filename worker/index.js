@@ -6,10 +6,13 @@
 //   POST /api/feedback  { ...answers }          -> { ok }       (saved for suhi to read)
 // Keys live in Cloudflare as secrets (GEMINI_KEY, JINA_KEY), never in this code.
 import { fetchMenuText } from "../menu.js";
-import { readMenu, readRating } from "../ai.js";
+import { readMenu, readRating, readMenuWithGoogle } from "../ai.js";
 
 const ALLOWED = ["https://drekka.pages.dev", "https://drekka.drekka.workers.dev", "https://suhibug.github.io", "http://127.0.0.1:8765", "http://127.0.0.1:8787", "http://localhost:8000"];
 const MENU_DAYS = 3; // menus change, so remembered menus expire after a few days
+// Google Search (paid key, GOOGLE_KEY) is the last resort when the free search finds nothing.
+// About 1 cent each; suhi's limit is $3 a month, so it stops after this many in a month.
+const GOOGLE_PER_MONTH = 250;
 
 function reply(body, origin, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -21,6 +24,16 @@ function reply(body, origin, status = 200) {
       "Access-Control-Allow-Headers": "Content-Type",
     },
   });
+}
+
+// Google, but only while this month's count is under the limit.
+async function lastResort(env, place) {
+  if (!env.GOOGLE_KEY) return { found: false, drinks: [] };
+  const month = "google:" + new Date().toISOString().slice(0, 7);
+  const used = +(await env.DREKKA.get(month)) || 0;
+  if (used >= GOOGLE_PER_MONTH) return { found: false, drinks: [] };
+  await env.DREKKA.put(month, String(used + 1), { expirationTtl: 40 * 86400 });
+  return readMenuWithGoogle(env.GOOGLE_KEY, place).catch(() => ({ found: false, drinks: [] }));
 }
 
 export default {
@@ -41,8 +54,8 @@ export default {
         const cached = await env.DREKKA.get(cacheKey, "json");
         if (cached) return reply({ ...cached, cached: true }, origin);
         const got = await fetchMenuText(place, { jinaKey: env.JINA_KEY });
-        if (!got) return reply({ found: false, drinks: [] }, origin);
-        const menu = await readMenu(env.GEMINI_KEY, place, got.pages);
+        let menu = got ? await readMenu(env.GEMINI_KEY, place, got.pages).catch(() => ({ found: false, drinks: [] })) : { found: false, drinks: [] };
+        if (!menu.found) menu = await lastResort(env, place);
         if (menu.found) await env.DREKKA.put(cacheKey, JSON.stringify(menu), { expirationTtl: MENU_DAYS * 86400 });
         return reply(menu, origin);
       }

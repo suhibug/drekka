@@ -24,8 +24,9 @@ Up to 45 drinks. Leave out food. List each drink once.`;
 // The reader adds a list of links at the end of each page; the AI doesn't need it.
 const clean = (t) => t.replace(/\n(Links\/Buttons|Images):[\s\S]*$/, "").replace(/\n{3,}/g, "\n\n");
 
-async function ask(key, parts, json = true) {
+async function ask(key, parts, json = true, tools = null) {
   const body = { contents: [{ role: "user", parts }], generationConfig: json ? { responseMimeType: "application/json" } : {} };
+  if (tools) body.tools = tools;
   let res;
   for (const model of lastGood ? [lastGood, ...MODELS.filter((m) => m !== lastGood)] : MODELS) {
     res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
@@ -40,7 +41,9 @@ async function ask(key, parts, json = true) {
   if (res.status === 429) throw new Error("lots of people are searching right now. try again in a minute.");
   if (!res.ok) throw new Error("the ai didn't answer (" + res.status + "). try again in a minute.");
   const data = await res.json();
-  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  ask.lastSources = (data.candidates?.[0]?.groundingMetadata?.groundingChunks || []).map((c) => c.web).filter(Boolean);
+  return text;
 }
 
 // Reads the ai's json even when it forgot a closing bracket or two at the very end (it sometimes does).
@@ -63,7 +66,7 @@ export async function readMenu(key, place, pages) {
     return t ? `--- page: ${p.url}\n${t}` : "";
   }).join("\n\n");
   const where = `${place.name}${place.address ? ", " + place.address : ""}`;
-  const parts = [{ text: `Below is web text about the menu of ${where}. List the drinks on it. Only include drinks that are actually written in this text; never invent any. If there are no drinks in it, return {"found": false}.\n${FORMAT}\n\n${text}` }];
+  const parts = [{ text: `Below is web text about the menu of ${where}. List the drinks on it. Only use pages that are clearly about THIS place (same name; same city if one is given), and ignore pages about any other place, even with a similar name. Only include drinks that are actually written in this text; never invent any. If there are no drinks for this exact place, return {"found": false}.\n${FORMAT}\n\n${text}` }];
   // Now and then the ai's answer comes back garbled: ask once more before giving up.
   let menu;
   for (let attempt = 0; attempt < 2 && !menu; attempt++) {
@@ -72,7 +75,11 @@ export async function readMenu(key, place, pages) {
   }
   if (!menu) throw new Error("couldn't read the menu this time. try again.");
   if (!menu.found || !menu.d?.length) return { found: false, drinks: [] };
+  return tidy(menu, pages.slice(0, 2).map((p) => ({ uri: p.url, title: new URL(p.url).hostname.replace(/^www\./, "") })));
+}
 
+// The ai's compact lists -> drinks with named fields.
+function tidy(menu, sources) {
   menu.drinks = menu.d.filter((r) => Array.isArray(r) && r[0]).map(([name, price, u, why, flavors, flags = ""]) => ({
     name: String(name), price: String(price || ""), why: String(why || ""),
     uniqueness: Math.max(1, Math.min(10, Math.round(+u || 5))),
@@ -80,8 +87,18 @@ export async function readMenu(key, place, pages) {
     popular: /p/.test(flags), seasonal: /s/.test(flags), alcohol: /a/.test(flags),
   }));
   delete menu.d;
-  menu.sources = pages.slice(0, 2).map((p) => ({ uri: p.url, title: new URL(p.url).hostname.replace(/^www\./, "") }));
+  menu.sources = sources;
   return menu;
+}
+
+// The last resort, when the free search found nothing: Google Search, through the paid key.
+// (Used only a limited number of times a month; the server keeps count. See worker/index.js.)
+export async function readMenuWithGoogle(key, place) {
+  const where = `${place.name}${place.address ? ", " + place.address : ""}`;
+  const out = await ask(key, [{ text: `Search Google for the current drink menu of this exact place: ${where}. Use its website, online ordering pages, food apps or recent posts. Only include drinks you actually found for this exact place (not a different place with a similar name); never invent any. If you can't find its menu, return {"found": false}.\n${FORMAT}` }], false, [{ google_search: {} }]);
+  const menu = parseLoose(out);
+  if (!menu?.found || !menu.d?.length) return { found: false, drinks: [] };
+  return tidy(menu, (ask.lastSources || []).slice(0, 2).map((w) => ({ uri: w.uri, title: (w.title || "google").replace(/^www\./, "") })));
 }
 
 // image: base64 PNG of the scribble pad. Returns a number 1-10, or null if it can't tell.

@@ -89,6 +89,17 @@ async function fromWebsite(site, jinaKey) {
   return pages;
 }
 
+// A search result only counts if it clearly names this place: every distinctive word of the
+// name must appear in it (so "zzqx tea hut" never matches some other "tea hut").
+const GENERIC = new Set(["the", "and", "cafe", "café", "coffee", "tea", "bar", "restaurant", "house", "kitchen", "shop", "lounge", "co", "company", "eatery", "grill", "bistro", "drinks"]);
+const plain = (t) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function namesPlace(page, name) {
+  const words = plain(name).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !GENERIC.has(w));
+  const hay = plain(page.url + " " + page.text).replace(/[^a-z0-9]+/g, " ");
+  const need = words.length ? words : [plain(name)];
+  return need.every((w) => hay.includes(w) || hay.includes(w.replace(/s$/, "")));
+}
+
 // Search the web for the menu (needs a jina key). Two searches at once, worded differently; then
 // the most promising results are opened in full, since search results only carry a slice of each page.
 async function fromSearch(place, jinaKey) {
@@ -107,7 +118,8 @@ async function fromSearch(place, jinaKey) {
   };
   const found = (await Promise.allSettled([ask(`${place.name} ${city} menu`), ask(`${place.name} ${city} drinks beverages menu`)]))
     .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
-    .filter((p, i, all) => all.findIndex((x) => x.url === p.url) === i);
+    .filter((p, i, all) => all.findIndex((x) => x.url === p.url) === i)
+    .filter((p) => namesPlace(p, place.name));
   // Open the best open (not walled) results in full.
   const open = found.filter((p) => !WALLED.test(p.url)).sort((a, b) => drinkiness(b.text) - drinkiness(a.text)).slice(0, 3);
   const full = await Promise.allSettled(open.map((p) => read(p.url, jinaKey)));
