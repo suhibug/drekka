@@ -57,7 +57,7 @@ h2.ink { font-family: "Pinyon Script", cursive; font-weight: 400; font-size: 34p
 .small { font-size: 17px; color: var(--faded); }
 
 /* Search */
-#search, #key-input, textarea, .drink-label {
+#search, #key-input, #jina-input, textarea, .drink-label {
   width: 100%; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 6px;
   background: rgba(255, 252, 240, 0.6); outline: none;
 }

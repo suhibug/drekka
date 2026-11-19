@@ -30,9 +30,14 @@ async function brandWebsite(qid) {
 }
 
 // Read one page as text (plus the links on it).
+// With a free jina key (settings), it can also read menus hidden inside frames (like swig's).
+function jinaKey() { try { return JSON.parse(localStorage.getItem("drekka-jina")) || ""; } catch { return ""; } }
+
 async function read(url) {
+  const key = jinaKey();
+  const extra = key ? { Authorization: "Bearer " + key, "X-With-Iframe": "true", "X-With-Shadow-Dom": "true" } : {};
   const res = await fetch(READER + url, {
-    headers: { "X-With-Links-Summary": "true", "X-Retain-Images": "none", "X-Timeout": "15" },
+    headers: { "X-With-Links-Summary": "true", "X-Retain-Images": "none", "X-Timeout": "15", ...extra },
     signal: AbortSignal.timeout(25000),
   });
   if (!res.ok) throw new Error("reader " + res.status);

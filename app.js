@@ -342,6 +342,7 @@ $("new-entry").onclick = () => openBook({ drinkName: "", placeName: "", placeAdd
 // ---------- Settings ----------
 $("settings-btn").onclick = () => {
   $("key-input").value = aiKey();
+  $("jina-input").value = store.get("drekka-jina", "");
   $("me-summary").textContent = me() ? summary(me()) : "";
   $("settings").showModal();
 };
@@ -365,6 +366,7 @@ greet();
 $("settings-close").onclick = () => $("settings").close();
 $("key-save").onclick = () => {
   store.set("drekka-key", $("key-input").value.trim());
+  store.set("drekka-jina", $("jina-input").value.trim());
   $("settings").close(); toast("saved");
   if (place && !menu) openPlace(place);
 };
