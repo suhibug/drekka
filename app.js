@@ -4,6 +4,7 @@ import { readMenu } from "./ai.js";
 import { fetchMenuText } from "./menu.js";
 import { pickThree, flavorChips, favoriteHere } from "./picks.js";
 import { sound, isMuted } from "./sound.js";
+import { runQuiz, profileFrom, summary } from "./quiz.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -15,6 +16,7 @@ const store = {
 };
 const journal = () => store.get("drekka-journal", []);
 const aiKey = () => store.get("drekka-key", "");
+const me = () => store.get("drekka-me", null); // answers from the welcome quiz
 const today = () => new Date().toISOString().slice(0, 10);
 
 function toast(text) {
@@ -118,7 +120,7 @@ async function openPlace(p) {
 }
 
 function showPicks() {
-  const picks = pickThree(menu.drinks, journal(), place.name, chosen, shown);
+  const picks = pickThree(menu.drinks, journal(), place.name, chosen, shown, profileFrom(me()));
   if (!picks.length) {
     $("status").textContent = shown.length ? "that's every drink that fits. tap different flavors, or start over." : "no drinks match those flavors here.";
     $("cards").innerHTML = "";
@@ -338,7 +340,28 @@ $("journal-back").onclick = () => show(place ? "picks-view" : "search-view");
 $("new-entry").onclick = () => openBook({ drinkName: "", placeName: "", placeAddr: "" });
 
 // ---------- Settings ----------
-$("settings-btn").onclick = () => { $("key-input").value = aiKey(); $("settings").showModal(); };
+$("settings-btn").onclick = () => {
+  $("key-input").value = aiKey();
+  $("me-summary").textContent = me() ? summary(me()) : "";
+  $("settings").showModal();
+};
+$("retake-quiz").onclick = () => { $("settings").close(); startQuiz(); };
+
+// ---------- Welcome quiz (first open, or from settings) ----------
+function greet() {
+  const name = me()?.name;
+  $("search-view").querySelector("h2").textContent = name ? `where are you drinking today, ${name}?` : "where are you drinking today?";
+}
+function startQuiz() {
+  runQuiz(sound, me(), (answers) => {
+    if (answers) store.set("drekka-me", answers);
+    store.set("drekka-welcomed", true);
+    greet();
+    if (!aiKey()) $("settings").showModal(); // one-time setup: the free ai key
+  });
+}
+if (!store.get("drekka-welcomed", false)) startQuiz();
+greet();
 $("settings-close").onclick = () => $("settings").close();
 $("key-save").onclick = () => {
   store.set("drekka-key", $("key-input").value.trim());

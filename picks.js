@@ -4,9 +4,10 @@
 //      your_type   - leans toward flavors you rated high in your journal
 //   3. wild_card   - a rare drink outside your usual taste, on purpose
 
-// What your journal says you like: flavor -> score (positive = you like it).
-export function tasteProfile(entries) {
-  const score = {};
+// What you like: flavor -> score (positive = you like it). Starts from the welcome quiz
+// (prefs, see quiz.js profileFrom) and keeps learning from every rating in your journal.
+export function tasteProfile(entries, prefs) {
+  const score = { ...(prefs?.loves || {}) };
   for (const e of entries) {
     if (!e.rating || !e.flavors) continue;
     const w = (e.rating - 5.5) / 4.5; // 10 -> +1, 1 -> -1
@@ -16,7 +17,13 @@ export function tasteProfile(entries) {
 }
 
 const key = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-const likes = (drink, profile) => (drink.flavors || []).reduce((sum, f) => sum + (profile[f] || 0), 0);
+// How much a drink fits you: its flavors, plus words from your quiz answers in its name
+// (e.g. "matcha", "cold brew"), so it matches the kinds of drinks you said you like.
+function likes(drink, profile, words = []) {
+  const text = `${drink.name} ${drink.description || ""}`.toLowerCase();
+  const byWord = words.filter((w) => text.includes(w)).length * 0.8;
+  return (drink.flavors || []).reduce((sum, f) => sum + (profile[f] || 0), 0) + byWord;
+}
 
 // The drink you loved most at this place before, if any (rated 8 or more).
 export function favoriteHere(entries, placeName) {
@@ -27,13 +34,15 @@ export function favoriteHere(entries, placeName) {
 // drinks: [{ name, uniqueness, flavors, popular, seasonal }]
 // chosen: flavor chips the person tapped (empty = any)
 // skip:   drink names already shown, so "show me more" gives new ones
-export function pickThree(drinks, entries, placeName, chosen = [], skip = []) {
-  const profile = tasteProfile(entries);
+export function pickThree(drinks, entries, placeName, chosen = [], skip = [], prefs = null) {
+  const profile = tasteProfile(entries, prefs);
   const hasTaste = Object.keys(profile).length > 0;
+  const words = prefs?.words || [];
+  const adventure = prefs?.adventure ?? 0.35; // how much rarity counts in "your_type"
   const triedHere = new Set(entries.filter((e) => key(e.placeName) === key(placeName)).map((e) => key(e.drinkName)));
   const skipped = new Set(skip.map(key));
 
-  let pool = drinks.filter((d) => !skipped.has(key(d.name)));
+  let pool = drinks.filter((d) => !skipped.has(key(d.name)) && !(prefs?.noAlcohol && d.alcohol));
   if (chosen.length) pool = pool.filter((d) => (d.flavors || []).some((f) => chosen.includes(f)));
   // Drinks you haven't tried here come first; tried ones only if nothing else is left.
   const fresh = pool.filter((d) => !triedHere.has(key(d.name)));
@@ -46,10 +55,10 @@ export function pickThree(drinks, entries, placeName, chosen = [], skip = []) {
 
   const unique = take(best(left(), (d) => d.uniqueness + (d.seasonal ? 0.5 : 0) + (d.popular ? 0.2 : 0)));
   const forYou = take(best(left(), (d) => hasTaste
-    ? likes(d, profile) * 2 + d.uniqueness * 0.35 + (d.popular ? 1 : 0)
+    ? likes(d, profile, words) * 2 + d.uniqueness * adventure + (d.popular ? 1 : 0)
     : (d.popular ? 3 : 0) + d.uniqueness * 0.5 + (d.seasonal ? 0.5 : 0)));
   // Surprise: rare and not your usual. A little randomness so it changes each time.
-  const outside = left().filter((d) => !hasTaste || likes(d, profile) <= 0);
+  const outside = left().filter((d) => !hasTaste || likes(d, profile, words) <= 0);
   const surprise = take(best(outside.length ? outside : left(), (d) => d.uniqueness + Math.random() * 2.5));
 
   return [

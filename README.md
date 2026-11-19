@@ -10,6 +10,8 @@ Type a café, bar or restaurant, tap it, and Drekka reads its menu online and pi
 
 Not feeling them? Tap flavors you're in the mood for, or ask for 3 more.
 
+The first time you open it, a short tap-only quiz gets to know you: what you usually drink, how you like your coffee or tea, flavors you love or skip, and how adventurous you are. Drekka uses that from the very first pick.
+
 Every drink you try can go into a little leather-bound journal: a small photo, a scribbled rating, and a note. Your ratings teach Drekka your taste, and next time you visit a place it reminds you of the drink you loved there.
 
 Built by Suhitha Lakkunda Rathnakara.

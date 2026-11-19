@@ -13,7 +13,7 @@ const FORMAT = `Return ONLY JSON, no other text:
  "drinks": [{"name": "", "description": "short, plain words", "price": "$6.50 or empty",
    "uniqueness": 1-10, "why": "one short line: what makes it special, or why it's common",
    "flavors": ["2 to 4 single lowercase words, e.g. coconut, kiwi, mango, floral, smoky, spicy, chocolate, coffee, tea, citrus, creamy, sour, nutty, herbal, caramel"],
-   "popular": true or false, "seasonal": true or false}]}
+   "popular": true or false, "seasonal": true or false, "alcohol": true or false}]}
 Uniqueness: 1 = you can get it almost anywhere (chocolate shake, iced latte, plain cola).
 10 = rare: only here, or a very unusual combination. Be honest and spread the scores out.
 "popular": true if the menu marks it as a favorite, best seller or signature.
