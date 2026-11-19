@@ -127,7 +127,7 @@ function showPicks() {
   $("after-picks").hidden = false;
   drawChips();
   const src = (menu.sources || []).map((s) => `<a href="${esc(s.uri)}" target="_blank" rel="noopener">${esc(s.title || "menu")}</a>`).join(", ");
-  $("menu-note").innerHTML = `${esc(menu.menuNote || "")}${src ? ` · Sources: ${src}` : ""}. Menus change, so ask if it's still available.`;
+  $("menu-note").innerHTML = `${esc((menu.menuNote || "").replace(/[.\s]+$/, ""))}${src ? ` · Sources: ${src}` : ""}. Menus change, so ask if it's still available.`;
 }
 
 function card({ kind, label, drink: d }) {
