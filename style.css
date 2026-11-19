@@ -213,3 +213,6 @@ hr { border: 0; border-top: 1px dashed var(--line); margin: 16px 0 8px; }
 .header-right { position: relative; }
 .sound-hint { position: absolute; top: 46px; right: 0; width: 210px; padding: 8px 12px; border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 17px; line-height: 1.2; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); animation: fade 0.3s ease; z-index: 6; }
 .sound-hint::before { content: ""; position: absolute; top: -6px; right: 56px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--paper); }
+
+.volume { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
+.volume input { flex: 1; accent-color: var(--ink); }

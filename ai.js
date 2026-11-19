@@ -101,7 +101,7 @@ function tidy(menu, sources) {
 // (Used only a limited number of times a month; the server keeps count. See worker/index.js.)
 export async function readMenuWithGoogle(key, place) {
   const where = `${place.name}${place.address ? ", " + place.address : ""}`;
-  const out = await ask(key, [{ text: `Search Google for the current drink menu of this exact place: ${where}. Use its website, online ordering pages, food apps or recent posts. Only include drinks you actually found for this exact place (not a different place with a similar name); never invent any. If you can't find its menu, return {"found": false}.\n${FORMAT}` }], false, [{ google_search: {} }]);
+  const out = await ask(key, [{ text: `Search Google for the current drink menu of this exact place: ${where}. Use its website, online ordering pages, food apps, reviews or recent posts, and list every drink you can find (coffee, tea, cocktails, mocktails, beer, wine, smoothies...). Only include drinks you actually found for this exact place (not a different place with a similar name); never invent any. If you can't find its menu, return {"found": false}.\n${FORMAT}` }], false, [{ google_search: {} }]);
   const menu = parseLoose(out);
   if (!menu?.found || !menu.d?.length) return { found: false, drinks: [] };
   const found = (ask.lastSources || []).slice(0, 2).map((w) => ({ uri: w.uri, title: (w.title || "google").replace(/^www\./, "") }));

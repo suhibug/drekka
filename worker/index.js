@@ -4,6 +4,7 @@
 //   POST /api/menu      { name, address, osm }  -> { found, drinks, sources }
 //   POST /api/rating    { image }               -> { rating }   (reads a scribbled "8/10")
 //   POST /api/feedback  { ...answers }          -> { ok }       (saved for suhi to read)
+//   POST /api/where     {}                      -> { lat, lon }  (rough location, for nearby search results)
 // Keys live in Cloudflare as secrets (GEMINI_KEY, JINA_KEY), never in this code.
 import { fetchMenuText } from "../menu.js";
 import { readMenu, readRating, readMenuWithGoogle } from "../ai.js";
@@ -84,7 +85,8 @@ export default {
         const place = { name: String(input.name || "").slice(0, 120), address: String(input.address || "").slice(0, 200), osm: String(input.osm || "").slice(0, 30) };
         if (!place.name) return reply({ error: "no place" }, origin, 400);
         const cacheKey = "menu:" + (place.osm || `${place.name}|${place.address}`).toLowerCase();
-        const save = (menu) => env.DREKKA.put(cacheKey, JSON.stringify({ ...menu, savedAt: Date.now() }));
+        // Full menus are kept forever. Thin ones (under 5 drinks) are kept 3 days, then looked up fresh.
+        const save = (menu) => env.DREKKA.put(cacheKey, JSON.stringify({ ...menu, savedAt: Date.now() }), menu.drinks.length < 5 ? { expirationTtl: 3 * 86400 } : {});
         const cached = await env.DREKKA.get(cacheKey, "json");
         if (cached) {
           if (Date.now() - (cached.savedAt || 0) > FRESH_DAYS * 86400000) {
@@ -98,6 +100,9 @@ export default {
         if (menu.found) await save(menu);
         return reply(menu, origin);
       }
+      // Roughly where the person is (city level, from their internet connection; no permission
+      // needed), so the place search can show nearby spots first.
+      if (path === "/where") return reply({ lat: req.cf?.latitude || null, lon: req.cf?.longitude || null }, origin);
       if (path === "/rating") {
         const image = String(input.image || "");
         if (!image || image.length > 400000) return reply({ rating: null }, origin);

@@ -48,10 +48,11 @@
     <div id="status" class="status"></div>
     <div id="cards" class="cards"></div>
     <div id="after-picks" hidden>
-      <p class="hand">not feeling these? tap any flavors you're in the mood for:</p>
+      <p class="hand">not feeling these? pick flavors you're in the mood for, then tap the button:</p>
       <div id="chips" class="chips"></div>
       <div id="price-row" hidden><p class="hand">price</p><div id="price-chips" class="chips"></div></div>
       <button id="more-btn" class="ink-btn">show me 3 more</button>
+      <div id="more-cards" class="cards"></div>
       <p id="menu-note" class="small"></p>
     </div>
   </section>
@@ -113,6 +114,7 @@
 <!-- Settings -->
 <dialog id="settings">
   <h2 class="ink">settings</h2>
+  <label class="volume small">music volume <input id="volume" type="range" min="0" max="100"></label>
   <div id="dev-keys">
   <p>for testing without drekka's server: paste your own free google ai key. it stays only on this device.</p>
   <ol class="small">

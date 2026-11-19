@@ -30,6 +30,10 @@ const any = (list) => list[Math.floor(Math.random() * list.length)];
 let ctx, master, wet, timer, piece, pieceStart, step = 0, nextTime = 0;
 let muted = (() => { try { return localStorage.getItem("drekka-muted") === "1"; } catch { return false; } })();
 export const isMuted = () => muted;
+// Music volume, 0 to 1 (settings has a slider). Kept low on purpose: it should sit quietly in the background.
+let volume = (() => { try { const v = parseFloat(localStorage.getItem("drekka-volume")); return isNaN(v) ? 0.5 : v; } catch { return 0.5; } })();
+export const getVolume = () => volume;
+const level = () => (muted ? 0 : 0.45 * volume * volume); // a gentle curve: the slider feels even
 
 // ---------- Audio setup ----------
 function start() {
@@ -40,7 +44,7 @@ function start() {
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   const comp = ctx.createDynamicsCompressor();
   comp.threshold.value = -20; comp.ratio.value = 3;
-  master = ctx.createGain(); master.gain.value = muted ? 0 : 0.9;
+  master = ctx.createGain(); master.gain.value = level();
   master.connect(comp); comp.connect(ctx.destination);
   // A soft, roomy reverb made from fading noise: it's what makes it feel calm and far away.
   const verb = ctx.createConvolver(), len = ctx.sampleRate * 3.2, ir = ctx.createBuffer(2, len, ctx.sampleRate);
@@ -159,6 +163,11 @@ function rustle() {
 }
 
 export const sound = {
+  setVolume(v) {
+    volume = Math.max(0, Math.min(1, v));
+    try { localStorage.setItem("drekka-volume", String(volume)); } catch {}
+    if (master) master.gain.setTargetAtTime(level(), ctx.currentTime, 0.1);
+  },
   // Call on every tap: wakes audio up (phones need a tap first) and starts the music.
   wake() {
     start();
@@ -174,7 +183,7 @@ export const sound = {
     muted = !muted;
     try { localStorage.setItem("drekka-muted", muted ? "1" : "0"); } catch {}
     if (muted) { stop(); if (master) master.gain.value = 0; }
-    else { start(); master.gain.value = 0.9; ctx.resume(); play(); }
+    else { start(); master.gain.value = level(); ctx.resume(); play(); }
     return muted;
   },
 };

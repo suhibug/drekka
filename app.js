@@ -4,7 +4,7 @@ import { readMenu, readRating } from "./ai.js";
 import { API } from "./config.js";
 import { fetchMenuText } from "./menu.js";
 import { pickThree, flavorChips, favoriteHere } from "./picks.js";
-import { sound, isMuted } from "./sound.js";
+import { sound, isMuted, getVolume } from "./sound.js";
 import { runQuiz, profileFrom, summary } from "./quiz.js";
 
 const $ = (id) => document.getElementById(id);
@@ -54,6 +54,8 @@ function getMenu(p) {
 // ---------- Sound button ----------
 const SPEAKER_ON = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>';
 const SPEAKER_OFF = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
+$("volume").value = Math.round(getVolume() * 100);
+$("volume").oninput = () => sound.setVolume($("volume").value / 100);
 const drawSpeaker = () => ($("sound-btn").innerHTML = isMuted() ? SPEAKER_OFF : SPEAKER_ON);
 $("sound-btn").onclick = () => { const m = sound.toggle(); drawSpeaker(); if (m) toast("music off"); else soundHint(); };
 drawSpeaker();
@@ -78,11 +80,20 @@ $("search").addEventListener("input", () => {
   searchTimer = setTimeout(() => findPlaces(q), 350);
 });
 
+// Roughly where you are (city level, from the server; no permission pop-up), so nearby places
+// come first: "casa" finds the bar in tempe, not casa grande.
+let near = null;
+if (API) fetch(API + "/where", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+  .then((r) => r.json()).then((w) => { if (w.lat && w.lon) near = w; }).catch(() => {});
+
 async function findPlaces(q) {
   let rows = "";
   try {
-    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=7`);
+    const bias = near ? `&lat=${near.lat}&lon=${near.lon}` : "";
+    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=15${bias}`);
     const data = await res.json();
+    // Only real places (cafés, bars, shops...), not streets, freeways or neighborhoods.
+    data.features = data.features.filter((f) => /^(amenity|shop|craft|tourism|leisure)$/.test(f.properties.osm_key)).slice(0, 7);
     rows = data.features.map(({ properties: p }) => {
       const addr = [[p.housenumber, p.street].filter(Boolean).join(" "), p.city || p.town || p.village, p.state, p.country].filter(Boolean).join(", ");
       return p.name ? `<li><button data-name="${esc(p.name)}" data-addr="${esc(addr)}" data-osm="${esc(p.osm_type + p.osm_id)}"><b>${esc(p.name)}</b><span>${esc(addr)}</span></button></li>` : "";
@@ -94,7 +105,10 @@ async function findPlaces(q) {
       getMenu({ name: top.name, address: addr, osm: top.osm_type + top.osm_id }).catch(() => {});
     }
   } catch { /* offline or search down */ }
-  if ($("search").value.trim() === q) $("results").innerHTML = rows || `<li class="none">can't find that spot on the map. try adding the city, like “yi fang tempe”.</li>`;
+  // The map doesn't know every place (new or small spots are often missing), so you can always
+  // look a name up on the web instead. Adding the city helps, like "casa tempe".
+  const anyway = `<li><button class="anyway" data-name="${esc(q)}" data-addr="" data-osm=""><b>not here? look up “${esc(q)}” anyway</b><span>${/\s/.test(q) ? "drekka will search the web for its menu" : "tip: add the city, like “" + esc(q) + " tempe”"}</span></button></li>`;
+  if ($("search").value.trim() === q) $("results").innerHTML = rows + anyway;
 }
 
 $("results").addEventListener("click", (e) => {
@@ -186,7 +200,7 @@ function showPicks(title = "") {
   // A new flavor or price may only match drinks shown earlier: show them again rather than nothing.
   if (!picks.length && title && title !== "3 more") picks = pickThree(drinks, journal(), place.name, chosen, [], prefs);
   if (!picks.length) {
-    groups.push({ title, empty: chosen.length || price ? "nothing here matches that. try another flavor or price." : "that's every drink here that fits you." });
+    groups.push(chosen.length || price ? noMatch(prefs) : { title, empty: "that's every drink here that fits you." });
   } else {
     // Plus a "steal": the best fit among this menu's lower prices (when it has prices and
     // no price is chosen yet), for anyone who'd like to spend less.
@@ -202,15 +216,28 @@ function showPicks(title = "") {
     sound.reveal();
   }
   drawPicks();
-  if (groups.length > 1) $("cards").lastElementChild.scrollIntoView({ behavior: "smooth", block: "start" });
+  // New picks go below the "show me 3 more" button, so you scroll down to them.
+  if (groups.length > 1) $("more-cards").lastElementChild.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Nothing fits the chosen flavors or price: say so, and suggest flavors this menu does have.
+function or(list) { return list.length > 1 ? list.slice(0, -1).join(", ") + " or " + list.at(-1) : list[0]; }
+function noMatch(prefs) {
+  const ok = menu.drinks.filter((d) => !(d.flavors || []).some((f) => prefs?.noFlavors?.includes(f)));
+  const ideas = flavorChips(ok).filter((f) => !chosen.includes(f) && !prefs?.noFlavors?.includes(f)).slice(0, 4);
+  const what = chosen.length ? `nothing ${or(chosen)} here` : "nothing here";
+  return { title: filterTitle(), empty: `${what}${price ? ` in the ${price} range` : ""} for you.${ideas.length ? " try one of these:" : " try another price."}`, ideas };
 }
 
 function drawPicks() {
   $("status").textContent = "";
-  $("cards").innerHTML = groups.map((g) => `<section class="group">
+  const group = (g) => `<section class="group">
     ${g.title ? `<h3 class="group-title">${esc(g.title)}</h3>` : ""}
     ${g.empty ? `<p class="hand">${esc(g.empty)}</p>` : g.picks.map(card).join("")}
-  </section>`).join("");
+    ${g.ideas?.length ? `<div class="chips">${g.ideas.map((f) => `<button class="chip idea" data-idea="${esc(f)}">${esc(f)}</button>`).join("")}</div>` : ""}
+  </section>`;
+  $("cards").innerHTML = groups.slice(0, 1).map(group).join("");
+  $("more-cards").innerHTML = groups.slice(1).map(group).join("");
   $("after-picks").hidden = false;
   drawChips();
   const src = (menu.sources || []).map((s) => `<a href="${esc(s.uri)}" target="_blank" rel="noopener">${esc(s.title || "menu")}</a>`).join(", ");
@@ -230,7 +257,7 @@ function card({ kind, label, drink: d }) {
   </article>`;
 }
 
-$("cards").addEventListener("click", (e) => {
+$("picks-view").addEventListener("click", (e) => {
   const b = e.target.closest(".have");
   if (!b) return;
   sound.tap();
@@ -242,6 +269,7 @@ $("cards").addEventListener("click", (e) => {
 const filterTitle = () => [chosen.join(" + "), price].filter(Boolean).join(" · ");
 
 function drawChips() {
+  $("more-btn").textContent = filterTitle() ? `show me ${filterTitle()}` : "show me 3 more";
   $("chips").innerHTML = flavorChips(menu.drinks).map((f) =>
     `<button class="chip ${chosen.includes(f) ? "on" : ""}" data-f="${esc(f)}">${esc(f)}</button>`).join("");
   const tiers = priceTiers();
@@ -255,16 +283,25 @@ $("chips").addEventListener("click", (e) => {
   const f = b.dataset.f;
   chosen = chosen.includes(f) ? chosen.filter((x) => x !== f) : [...chosen, f];
   sound.chip();
-  if (filterTitle()) showPicks(filterTitle()); else drawChips();
+  drawChips();
 });
 $("price-chips").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
   if (!b) return;
   price = price === b.dataset.p ? "" : b.dataset.p;
   sound.chip();
-  if (filterTitle()) showPicks(filterTitle()); else drawChips();
+  drawChips();
 });
-$("more-btn").onclick = () => { sound.tap(); showPicks(filterTitle() ? `3 more · ${filterTitle()}` : "3 more"); };
+// Choose flavors and a price first, then this button shows picks that fit them.
+$("more-btn").onclick = () => { sound.tap(); showPicks(filterTitle() || "3 more"); };
+// A suggested flavor (after "nothing here"): tap it and its picks appear below.
+$("more-cards").addEventListener("click", (e) => {
+  const b = e.target.closest(".idea");
+  if (!b) return;
+  sound.tap();
+  chosen = [b.dataset.idea]; price = "";
+  showPicks(filterTitle());
+});
 $("back-btn").onclick = () => { place = null; show("search-view"); $("search").focus(); };
 
 // Make a picture smaller so it saves and sends quickly. Returns a data URL.
@@ -487,7 +524,16 @@ async function readScribble() {
   } catch { return null; }
 }
 
+// One save at a time: reading the scribble takes a few seconds, and a second tap in that
+// time used to save the same drink twice.
+let saving = false;
 $("save-entry").onclick = async () => {
+  if (saving || draft?.saved) return; // already saved: the book is just closing
+  saving = true;
+  $("save-entry").disabled = true;
+  try { await saveEntry(); } finally { saving = false; $("save-entry").disabled = false; }
+};
+async function saveEntry() {
   const name = $("e-name").value.trim();
   if (!name) { $("e-name").focus(); return toast("give the drink a name first"); }
   if (!draft.rating) {
@@ -508,13 +554,14 @@ $("save-entry").onclick = async () => {
     try { await media.put(entry.id, draft.video); entry.video = true; } catch { toast("couldn't keep the video, saving the photo"); }
   }
   if (!store.set("drekka-journal", [entry, ...journal()])) return toast("your phone is out of space for photos");
+  draft.saved = true;
   sound.save();
   closeBook(() => {
     toast(`cheers! saved as ${entry.rating}/10`);
     if (!$("journal-view").hidden) drawJournal();
     askFeedback();
   });
-};
+}
 
 // ---------- Feedback (after saving a drink, now and then) ----------
 // Asks after the 1st and 3rd saved drink, then every 5th. Never twice in one day.
