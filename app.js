@@ -35,7 +35,7 @@ function show(view) {
 for (const ev of ["pointerdown", "touchend", "click"]) document.addEventListener(ev, () => sound.wake(), { capture: true });
 
 // ---------- Menus: from drekka's server, or (testing) with your own keys ----------
-const placeKey = (p) => (p.osm || `${p.name}|${p.address}`).toLowerCase();
+const placeKey = (p) => (p.osm || p.gid || `${p.name}|${p.address}`).toLowerCase();
 const pending = new Map(); // lookups already started (so tapping a result reuses the head start)
 // early = a head start while you're still on the search screen: free sources only, never the
 // paid google search. If an early look finds nothing, tapping the place looks again with everything.
@@ -115,14 +115,27 @@ async function findPlaces(q) {
     }
   } catch { /* offline or search down */ }
   if ($("search").value.trim() !== q) return; // they kept typing
-  // The map doesn't know every place (new or small spots are often missing), so you can always
-  // look a name up on the web instead. When the map has nothing by that name, that row goes on top
-  // and the web search starts by itself once you stop typing, so it's ready (or nearly) when you tap.
-  const anyway = `<li><button class="anyway" data-name="${esc(q)}" data-addr="" data-osm=""><b>${mapHasIt ? "not here? look up" : "search the web for"} “${esc(q)}”</b><span>${mapHasIt ? "drekka will search the web for its menu" : "the map doesn't know it yet, so drekka is already looking online"}</span></button></li>`;
-  $("results").innerHTML = mapHasIt ? rows + anyway : anyway + rows;
-  if (API && !mapHasIt && q.split(/\s+/).length >= 2) {
+  // The map doesn't know every place (new or small spots are often missing). Then google maps is
+  // asked too (free up to a monthly limit, on the server), and its matches go on top.
+  let gRows = "", gTop = null;
+  if (API && !mapHasIt && q.length >= 3) {
+    try {
+      const res = await fetch(API + "/places", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q, lat: near?.lat, lon: near?.lon }) });
+      const found = ((await res.json()).places || []).filter((g) => sameName(g.name, q)).slice(0, 4);
+      gTop = found[0] || null;
+      gRows = found.map((g) => `<li><button data-name="${esc(g.name)}" data-addr="${esc(g.address)}" data-osm="" data-gid="${esc(g.gid)}"><b>${esc(g.name)}</b><span>${esc(g.address)}</span></button></li>`).join("");
+    } catch { /* server busy: the web search row still works */ }
+    if ($("search").value.trim() !== q) return;
+  }
+  // You can always look a name up on the web instead. When nothing anywhere has that name, that row
+  // goes on top and the web search starts by itself once you stop typing, so it's ready when you tap.
+  const known = mapHasIt || gTop;
+  const anyway = `<li><button class="anyway" data-name="${esc(q)}" data-addr="" data-osm=""><b>${known ? "not here? look up" : "search the web for"} “${esc(q)}”</b><span>${known ? "drekka will search the web for its menu" : "the map doesn't know it yet, so drekka is already looking online"}</span></button></li>`;
+  $("results").innerHTML = mapHasIt ? rows + anyway : gTop ? gRows + rows + anyway : anyway + rows;
+  if (API && !mapHasIt && (gTop || q.split(/\s+/).length >= 2)) {
     clearTimeout(webTimer);
-    webTimer = setTimeout(() => { if ($("search").value.trim() === q) getMenu({ name: q, address: "", osm: "" }, true).catch(() => {}); }, 1200);
+    const head = gTop ? { name: gTop.name, address: gTop.address, osm: "", gid: gTop.gid } : { name: q, address: "", osm: "" };
+    webTimer = setTimeout(() => { if ($("search").value.trim() === q) getMenu(head, true).catch(() => {}); }, gTop ? 300 : 1200);
   }
 }
 let mapHasIt = false, webTimer;
@@ -139,7 +152,7 @@ $("results").addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   sound.tap();
-  openPlace({ name: b.dataset.name, address: b.dataset.addr, osm: b.dataset.osm });
+  openPlace({ name: b.dataset.name, address: b.dataset.addr, osm: b.dataset.osm, gid: b.dataset.gid || "" });
 });
 
 // ---------- 2. Picks ----------

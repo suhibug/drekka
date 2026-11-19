@@ -5,7 +5,8 @@
 //   POST /api/rating    { image }               -> { rating }   (reads a scribbled "8/10")
 //   POST /api/feedback  { ...answers }          -> { ok }       (saved for suhi to read)
 //   POST /api/where     {}                      -> { lat, lon }  (rough location, for nearby search results)
-// Keys live in Cloudflare as secrets (GEMINI_KEY, JINA_KEY), never in this code.
+//   POST /api/places    { q, lat, lon }         -> { places: [{ name, address, gid }] }  (google maps, for spots the free map lacks)
+// Keys live in Cloudflare as secrets (GEMINI_KEY, JINA_KEY, PLACES_KEY), never in this code.
 import { fetchMenuText } from "../menu.js";
 import { readMenu, readRating, readMenuWithGoogle } from "../ai.js";
 
@@ -16,6 +17,11 @@ const FRESH_DAYS = 7;
 // Google Search (paid key, GOOGLE_KEY) is the last resort when the free search finds nothing.
 // About 1 cent each; suhi's limit is $3 a month, so it stops after this many in a month.
 const GOOGLE_PER_MONTH = 250;
+// Google Places (PLACES_KEY): only for spots the free map (OpenStreetMap) doesn't know. Google gives
+// 5,000 searches and 1,000 website look-ups free each month; these limits stay well under that,
+// so it costs $0. Past them, drekka simply stops asking google until next month.
+const PLACES_SEARCH_PER_MONTH = 4000;
+const PLACES_SITE_PER_MONTH = 800;
 // The free ai allows 500 a day; refreshes may use at most this many, leaving the rest for people.
 const REFRESH_PER_DAY = 100;
 
@@ -41,10 +47,55 @@ async function spend(env) {
   return true;
 }
 
+// Counts one use against a monthly limit; false once the limit is reached.
+async function within(env, name, limit) {
+  const month = name + ":" + new Date().toISOString().slice(0, 7);
+  const used = +(await env.DREKKA.get(month)) || 0;
+  if (used >= limit) return false;
+  await env.DREKKA.put(month, String(used + 1), { expirationTtl: 40 * 86400 });
+  return true;
+}
+
+// Places google maps knows by this name, nearby ones first. Same search answered from memory for 30 days.
+async function googlePlaces(env, q, lat, lon) {
+  if (!env.PLACES_KEY || q.length < 3) return [];
+  const near = lat && lon ? `${(+lat).toFixed(1)},${(+lon).toFixed(1)}` : "";
+  const key = "places:" + q.toLowerCase() + "|" + near;
+  const kept = await env.DREKKA.get(key, "json");
+  if (kept) return kept;
+  if (!(await within(env, "places-search", PLACES_SEARCH_PER_MONTH))) return [];
+  const body = { textQuery: q, pageSize: 6 };
+  if (near) body.locationBias = { circle: { center: { latitude: +lat, longitude: +lon }, radius: 40000 } };
+  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": env.PLACES_KEY, "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return [];
+  const places = ((await res.json()).places || []).map((p) => ({ name: p.displayName?.text || "", address: p.formattedAddress || "", gid: p.id })).filter((p) => p.name);
+  await env.DREKKA.put(key, JSON.stringify(places), { expirationTtl: 30 * 86400 });
+  return places;
+}
+
+// A google place's own website (kept forever once known), so the menu can be read from the source.
+async function googleWebsite(env, gid) {
+  if (!env.PLACES_KEY || !/^[\w-]{10,300}$/.test(gid)) return null;
+  const key = "site:" + gid;
+  const kept = await env.DREKKA.get(key);
+  if (kept !== null) return kept || null;
+  if (!(await within(env, "places-site", PLACES_SITE_PER_MONTH))) return null;
+  const res = await fetch("https://places.googleapis.com/v1/places/" + gid, { headers: { "X-Goog-Api-Key": env.PLACES_KEY, "X-Goog-FieldMask": "websiteUri" } });
+  if (!res.ok) return null;
+  const site = (await res.json()).websiteUri || "";
+  await env.DREKKA.put(key, site);
+  return site || null;
+}
+
 // The free way: the place's website or web search, read by the free ai. If the free ai is busy
 // (too many people at once), the paid key reads the same pages instead (counted like a google lookup),
 // so people aren't told to wait. canPay = false for background refreshes, which never spend money.
 async function freeMenu(env, place, canPay = true) {
+  if (place.gid && !place.osm && !place.site) place.site = await googleWebsite(env, place.gid).catch(() => null);
   const got = await fetchMenuText(place, { jinaKey: env.JINA_KEY });
   if (!got) return { found: false, drinks: [] };
   try { return await readMenu(env.GEMINI_KEY, place, got.pages); }
@@ -82,9 +133,9 @@ export default {
 
     try {
       if (path === "/menu") {
-        const place = { name: String(input.name || "").slice(0, 120), address: String(input.address || "").slice(0, 200), osm: String(input.osm || "").slice(0, 30) };
+        const place = { name: String(input.name || "").slice(0, 120), address: String(input.address || "").slice(0, 200), osm: String(input.osm || "").slice(0, 30), gid: String(input.gid || "").slice(0, 300) };
         if (!place.name) return reply({ error: "no place" }, origin, 400);
-        const cacheKey = "menu:" + (place.osm || `${place.name}|${place.address}`).toLowerCase();
+        const cacheKey = "menu:" + (place.osm || place.gid || `${place.name}|${place.address}`).toLowerCase();
         // Full menus are kept forever. Thin ones (under 5 drinks) are kept 3 days, then looked up fresh.
         const save = (menu) => env.DREKKA.put(cacheKey, JSON.stringify({ ...menu, savedAt: Date.now() }), menu.drinks.length < 5 ? { expirationTtl: 3 * 86400 } : {});
         const cached = await env.DREKKA.get(cacheKey, "json");
@@ -112,6 +163,10 @@ export default {
       // Roughly where the person is (city level, from their internet connection; no permission
       // needed), so the place search can show nearby spots first.
       if (path === "/where") return reply({ lat: req.cf?.latitude || null, lon: req.cf?.longitude || null }, origin);
+      if (path === "/places") {
+        const places = await googlePlaces(env, String(input.q || "").trim().slice(0, 120), input.lat, input.lon).catch(() => []);
+        return reply({ places }, origin);
+      }
       if (path === "/rating") {
         const image = String(input.image || "");
         if (!image || image.length > 400000) return reply({ rating: null }, origin);

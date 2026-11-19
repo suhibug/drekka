@@ -20,6 +20,7 @@ const WALLED = /zomato|swiggy|district\.in|ubereats|doordash|grubhub|postmates|t
 
 // The place's website from OpenStreetMap. place.osm = "N123" / "W123" / "R123" from the search result.
 export async function findWebsite(place) {
+  if (place.site) return place.site; // already known (from google maps, on the server)
   if (!place.osm) return null;
   const type = { N: "node", W: "way", R: "relation" }[place.osm[0]];
   try {
