@@ -150,7 +150,7 @@ h2.ink { font-family: "Caveat", cursive; font-weight: 700; font-size: 34px; colo
 .drink-label { font-family: "Caveat", cursive; font-weight: 700; font-size: 28px; background: transparent; border: 0; border-bottom: 1.5px solid var(--line); border-radius: 0; padding: 4px 2px; margin-right: 26px; width: calc(100% - 26px); }
 .page-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
 .polaroid { width: 150px; flex: none; background: #fffaf0; padding: 7px 7px 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); transform: rotate(-2deg); }
-.polaroid video { filter: grayscale(1) sepia(0.45) contrast(1.15) brightness(0.97); }
+.polaroid video, .entry .pic video { filter: grayscale(1) sepia(0.45) contrast(1.15) brightness(0.97); }
 .polaroid video, .polaroid img, .polaroid .sketch { width: 136px; height: 136px; object-fit: cover; display: block; background: #2a2018; }
 .sketch svg { width: 100%; height: 100%; display: block; }
 .sketch { background: #fffaf0 !important; fill: none; stroke: var(--ink-soft); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -199,3 +199,17 @@ hr { border: 0; border-top: 1px dashed var(--line); margin: 16px 0 8px; }
 #feedback .chips { margin-bottom: 4px; }
 #feedback textarea { margin-top: 2px; }
 .drink-label { resize: none; field-sizing: content; line-height: 1.15; overflow: hidden; }
+
+/* Picks pile up in groups; each later group has a small title (what changed) */
+.group + .group { margin-top: 22px; padding-top: 14px; border-top: 1.5px dashed var(--line); }
+.group { display: grid; gap: 14px; }
+.group-title { margin: 0; font-size: 22px; color: var(--accent); }
+.card .hint { margin: -2px 0 4px; font-size: 16px; color: var(--faded); }
+#price-row .hand { margin-top: 14px; }
+.polaroid { position: relative; }
+.polaroid .rec { position: absolute; top: 12px; left: 14px; color: #e04a3a; font-size: 15px; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.2; } }
+.entry .pic video { width: 100%; height: 100%; object-fit: cover; }
+.header-right { position: relative; }
+.sound-hint { position: absolute; top: 46px; right: 0; width: 210px; padding: 8px 12px; border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 17px; line-height: 1.2; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); animation: fade 0.3s ease; z-index: 6; }
+.sound-hint::before { content: ""; position: absolute; top: -6px; right: 56px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--paper); }

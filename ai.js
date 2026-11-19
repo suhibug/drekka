@@ -52,10 +52,14 @@ export async function readMenu(key, place, pages) {
     return t ? `--- page: ${p.url}\n${t}` : "";
   }).join("\n\n");
   const where = `${place.name}${place.address ? ", " + place.address : ""}`;
-  const out = await ask(key, [{ text: `Below is web text about the menu of ${where}. List the drinks on it. Only include drinks that are actually written in this text; never invent any. If there are no drinks in it, return {"found": false}.\n${FORMAT}\n\n${text}` }]);
+  const parts = [{ text: `Below is web text about the menu of ${where}. List the drinks on it. Only include drinks that are actually written in this text; never invent any. If there are no drinks in it, return {"found": false}.\n${FORMAT}\n\n${text}` }];
+  // Now and then the ai's answer comes back garbled: ask once more before giving up.
   let menu;
-  try { menu = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1)); }
-  catch { throw new Error("couldn't read the menu this time. try again."); }
+  for (let attempt = 0; attempt < 2 && !menu; attempt++) {
+    const out = await ask(key, parts);
+    try { menu = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1)); } catch { /* try again */ }
+  }
+  if (!menu) throw new Error("couldn't read the menu this time. try again.");
   if (!menu.found || !menu.d?.length) return { found: false, drinks: [] };
 
   menu.drinks = menu.d.filter((r) => Array.isArray(r) && r[0]).map(([name, price, u, why, flavors, flags = ""]) => ({

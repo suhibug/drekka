@@ -14,7 +14,9 @@ const MENU_WORDS = /menu|drink|beverage|bev\b|coffee|tea|cocktail|bar\b|smoothie
 const DRINK_LINK = /drink|bev|coffee|tea|cocktail/i;
 const SKIP = /\.(png|jpe?g|gif|webp|svg|ico|css|js)(\?|$)|instagram|facebook|tiktok|twitter|x\.com|yelp|google\.|maps|mailto:|tel:|careers|jobs|privacy|terms|login|cart|gift/i;
 // Words that show a page really lists drinks.
-const DRINKY = /latte|espresso|matcha|tea\b|lemonade|soda|smoothie|juice|cocktail|mojito|margarita|boba|refresher|cold brew|shake|spritz|sangria|frapp|dr pepper|coke|sprite|puree|syrup/gi;
+const DRINKY = /latte|espresso|coffee|matcha|tea\b|chai|lemonade|soda|smoothie|juice|cocktail|mocktail|mojito|margarita|boba|refresher|cold brew|shake|spritz|sangria|frapp|dr pepper|coke|sprite|puree|syrup|lassi|falooda|buttermilk|horchata|agua fresca/gi;
+// Food apps whose pages hide menus behind pictures or sign-ins: still searched, but read last.
+const WALLED = /zomato|swiggy|district\.in|ubereats|doordash|grubhub|postmates|toasttab/;
 
 // The place's website from OpenStreetMap. place.osm = "N123" / "W123" / "R123" from the search result.
 export async function findWebsite(place) {
@@ -87,21 +89,31 @@ async function fromWebsite(site, jinaKey) {
   return pages;
 }
 
-// Search the web for the menu (needs a jina key). Each search result comes with its page text.
+// Search the web for the menu (needs a jina key). Two searches at once, worded differently; then
+// the most promising results are opened in full, since search results only carry a slice of each page.
 async function fromSearch(place, jinaKey) {
   const city = (place.address || "").split(",").map((s) => s.trim()).filter((s) => !/^\d/.test(s))[1] || "";
-  const q = `${place.name} ${city} drink menu`.trim();
-  const res = await fetch(SEARCH + encodeURIComponent(q), {
-    headers: { Authorization: "Bearer " + jinaKey, "X-Retain-Images": "none" },
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!res.ok) return [];
-  const text = await res.text();
-  // Split into results: "[1] Title: ... [1] URL Source: ... [1] Markdown Content: ..."
-  return text.split(/\n(?=\[\d+\] Title:)/).map((chunk) => {
-    const url = chunk.match(/\[\d+\] URL Source: (\S+)/)?.[1];
-    return url && !/facebook|instagram|tiktok|pinterest/.test(url) ? { url, text: chunk.slice(0, 15000) } : null;
-  }).filter(Boolean).sort((a, b) => drinkiness(b.text) - drinkiness(a.text)).slice(0, 3);
+  const ask = async (q) => {
+    const res = await fetch(SEARCH + encodeURIComponent(q), {
+      headers: { Authorization: "Bearer " + jinaKey, "X-Retain-Images": "none" },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return [];
+    // Split into results: "[1] Title: ... [1] URL Source: ... [1] Markdown Content: ..."
+    return (await res.text()).split(/\n(?=\[\d+\] Title:)/).map((chunk) => {
+      const url = chunk.match(/\[\d+\] URL Source: (\S+)/)?.[1];
+      return url && !/facebook|instagram|tiktok|pinterest|youtube/.test(url) ? { url, text: chunk.slice(0, 15000) } : null;
+    }).filter(Boolean);
+  };
+  const found = (await Promise.allSettled([ask(`${place.name} ${city} menu`), ask(`${place.name} ${city} drinks beverages menu`)]))
+    .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
+    .filter((p, i, all) => all.findIndex((x) => x.url === p.url) === i);
+  // Open the best open (not walled) results in full.
+  const open = found.filter((p) => !WALLED.test(p.url)).sort((a, b) => drinkiness(b.text) - drinkiness(a.text)).slice(0, 3);
+  const full = await Promise.allSettled(open.map((p) => read(p.url, jinaKey)));
+  full.forEach((r, i) => { if (r.status === "fulfilled" && r.value.length > open[i].text.length) open[i].text = r.value.slice(0, 20000); });
+  return [...open, ...found.filter((p) => !open.includes(p))]
+    .sort((a, b) => drinkiness(b.text) - drinkiness(a.text)).slice(0, 5);
 }
 
 // Returns { site, pages: [{ url, text }] } (most drink-filled page first) or null if nothing was found.

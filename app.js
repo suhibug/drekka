@@ -55,8 +55,19 @@ function getMenu(p) {
 const SPEAKER_ON = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>';
 const SPEAKER_OFF = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
 const drawSpeaker = () => ($("sound-btn").innerHTML = isMuted() ? SPEAKER_OFF : SPEAKER_ON);
-$("sound-btn").onclick = () => { const m = sound.toggle(); drawSpeaker(); toast(m ? "sound off" : "sound on"); };
+$("sound-btn").onclick = () => { const m = sound.toggle(); drawSpeaker(); if (m) toast("music off"); else soundHint(); };
 drawSpeaker();
+
+// iphones on silent mode don't play web music: a small note under the music button explains it.
+// Shows once when the music first starts (each time the app opens), and when music is turned on.
+const onIphone = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function soundHint() {
+  if (!onIphone || isMuted()) return;
+  $("sound-hint").hidden = false;
+  clearTimeout(soundHint.t); soundHint.t = setTimeout(() => ($("sound-hint").hidden = true), 5000);
+}
+document.addEventListener("pointerdown", () => soundHint(), { once: true });
+$("sound-hint").onclick = () => ($("sound-hint").hidden = true);
 
 // ---------- 1. Search for a place (free OpenStreetMap search, no key needed) ----------
 let searchTimer;
@@ -97,7 +108,7 @@ $("results").addEventListener("click", (e) => {
 let place = null, menu = null, chosen = [], shown = [];
 
 async function openPlace(p) {
-  place = p; menu = null; chosen = []; shown = [];
+  place = p; menu = null; chosen = []; shown = []; groups = []; price = "";
   show("picks-view");
   $("place-name").textContent = p.name;
   $("place-addr").textContent = p.address || "";
@@ -139,17 +150,57 @@ async function openPlace(p) {
   showPicks();
 }
 
-function showPicks() {
-  const picks = pickThree(menu.drinks, journal(), place.name, chosen, shown, profileFrom(me()));
+// The picks pile up on the page (newest at the bottom), so earlier ones stay there to compare.
+let groups = [], price = "";
+
+// Prices like "$6.50", "₹111" or "rs 65" -> numbers. The menu's own prices split into thirds:
+// budget (cheapest third), mid, splurge (priciest third). Works in any currency.
+const priceOf = (d) => parseFloat(String(d.price || "").replace(/,/g, "").replace(/[^0-9.]/g, "")) || null;
+function priceTiers() {
+  const ps = menu.drinks.map(priceOf).filter(Boolean).sort((a, b) => a - b);
+  if (ps.length < Math.max(4, menu.drinks.length / 2)) return null; // not enough prices on this menu
+  return { low: ps[Math.floor(ps.length / 3)], high: ps[Math.floor((ps.length * 2) / 3)] };
+}
+function inPrice(d, tiers) {
+  if (!price || !tiers) return true;
+  const p = priceOf(d);
+  if (p == null) return false;
+  return price === "budget" ? p <= tiers.low : price === "splurge" ? p >= tiers.high : p > tiers.low && p < tiers.high;
+}
+
+// What each label means, shown small under it.
+const HINTS = {
+  rare: "the rarest drink here that still fits your taste",
+  yours: "picked for you, from your quiz and your ratings",
+  signature: "what this place is known for",
+  wild: "a surprise outside your usual, on purpose",
+};
+
+// Adds 3 picks to the page. title: what changed ("3 more", "mango", "budget"...), empty for the first ones.
+function showPicks(title = "") {
+  const tiers = priceTiers();
+  const drinks = menu.drinks.filter((d) => inPrice(d, tiers));
+  const prefs = profileFrom(me());
+  let picks = pickThree(drinks, journal(), place.name, chosen, shown, prefs);
+  // A new flavor or price may only match drinks shown earlier: show them again rather than nothing.
+  if (!picks.length && title && title !== "3 more") picks = pickThree(drinks, journal(), place.name, chosen, [], prefs);
   if (!picks.length) {
-    $("status").textContent = shown.length ? "that's every drink that fits. tap different flavors, or start over." : "no drinks match those flavors here.";
-    $("cards").innerHTML = "";
+    groups.push({ title, empty: chosen.length || price ? "nothing here matches that. try another flavor or price." : "that's every drink here that fits you." });
   } else {
-    $("status").textContent = "";
     shown.push(...picks.map((p) => p.drink.name));
-    $("cards").innerHTML = picks.map(card).join("");
+    groups.push({ title, picks });
     sound.reveal();
   }
+  drawPicks();
+  if (groups.length > 1) $("cards").lastElementChild.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function drawPicks() {
+  $("status").textContent = "";
+  $("cards").innerHTML = groups.map((g) => `<section class="group">
+    ${g.title ? `<h3 class="group-title">${esc(g.title)}</h3>` : ""}
+    ${g.empty ? `<p class="hand">${esc(g.empty)}</p>` : g.picks.map(card).join("")}
+  </section>`).join("");
   $("after-picks").hidden = false;
   drawChips();
   const src = (menu.sources || []).map((s) => `<a href="${esc(s.uri)}" target="_blank" rel="noopener">${esc(s.title || "menu")}</a>`).join(", ");
@@ -160,6 +211,7 @@ function card({ kind, label, drink: d }) {
   const dots = Array.from({ length: 10 }, (_, i) => `<i class="${i < d.uniqueness ? "on" : ""}"></i>`).join("");
   return `<article class="card">
     <p class="kind">${esc(label)}</p>
+    <p class="hint">${esc(HINTS[label] || "")}</p>
     <h3>${esc(d.name)}</h3>
     ${d.description ? `<p class="desc">${esc(d.description)}</p>` : ""}
     ${d.why ? `<p class="why">${esc(d.why)}</p>` : ""}
@@ -171,24 +223,38 @@ function card({ kind, label, drink: d }) {
 $("cards").addEventListener("click", (e) => {
   const b = e.target.closest(".have");
   if (!b) return;
+  sound.tap();
   const d = menu.drinks.find((x) => x.name === b.dataset.drink);
   openBook({ drinkName: d.name, flavors: d.flavors, uniqueness: d.uniqueness, placeName: place.name, placeAddr: place.address });
 });
 
+// What the current filters are, as a short title for the new group of picks.
+const filterTitle = () => [chosen.join(" + "), price].filter(Boolean).join(" · ");
+
 function drawChips() {
   $("chips").innerHTML = flavorChips(menu.drinks).map((f) =>
     `<button class="chip ${chosen.includes(f) ? "on" : ""}" data-f="${esc(f)}">${esc(f)}</button>`).join("");
+  const tiers = priceTiers();
+  $("price-row").hidden = !tiers;
+  if (tiers) $("price-chips").innerHTML = ["budget", "mid", "splurge"].map((t) =>
+    `<button class="chip ${price === t ? "on" : ""}" data-p="${t}">${t}</button>`).join("");
 }
 $("chips").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
   if (!b) return;
   const f = b.dataset.f;
   chosen = chosen.includes(f) ? chosen.filter((x) => x !== f) : [...chosen, f];
-  sound.chip(chosen.includes(f));
-  shown = []; // new flavors = start fresh
-  showPicks();
+  sound.chip();
+  if (filterTitle()) showPicks(filterTitle()); else drawChips();
 });
-$("more-btn").onclick = () => { sound.tap(); showPicks(); };
+$("price-chips").addEventListener("click", (e) => {
+  const b = e.target.closest(".chip");
+  if (!b) return;
+  price = price === b.dataset.p ? "" : b.dataset.p;
+  sound.chip();
+  if (filterTitle()) showPicks(filterTitle()); else drawChips();
+});
+$("more-btn").onclick = () => { sound.tap(); showPicks(filterTitle() ? `3 more · ${filterTitle()}` : "3 more"); };
 $("back-btn").onclick = () => { place = null; show("search-view"); $("search").focus(); };
 
 // Make a picture smaller so it saves and sends quickly. Returns a data URL.
@@ -224,33 +290,82 @@ function agePhoto(g, w, h) {
 }
 
 // ---------- 3. The journal page (opens like a book) ----------
-let draft = null, stream = null;
+// The polaroid can hold a photo, a short video, or nothing (a little ink drawing instead).
+// Its buttons are always there, so you can change your mind after choosing "none".
+let draft = null, stream = null, recorder = null;
+
+// Videos are too big for normal storage, so they live in the phone's own small database.
+const media = {
+  db: null,
+  open() {
+    return (this.db ||= new Promise((ok, fail) => {
+      const r = indexedDB.open("drekka", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("media");
+      r.onsuccess = () => ok(r.result); r.onerror = () => fail(r.error);
+    }));
+  },
+  async run(mode, fn) {
+    const db = await this.open();
+    return new Promise((ok, fail) => { const t = db.transaction("media", mode); const r = fn(t.objectStore("media")); t.oncomplete = () => ok(r?.result); t.onerror = () => fail(t.error); });
+  },
+  put(k, v) { return this.run("readwrite", (st) => st.put(v, k)); },
+  get(k) { return this.run("readonly", (st) => st.get(k)); },
+  del(k) { return this.run("readwrite", (st) => st.delete(k)); },
+};
+
+// Which picture area and buttons show: "live" camera, a "photo", a "clip", "none", or "nocam".
+function polaroid(mode) {
+  $("cam").hidden = mode !== "live";
+  $("snap").hidden = mode !== "photo";
+  $("clip").hidden = mode !== "clip";
+  $("sketch").hidden = !["none", "nocam"].includes(mode);
+  $("photo-btn").textContent = mode === "live" ? "snap" : mode === "photo" || mode === "clip" ? "retake" : "photo";
+  $("video-btn").textContent = "video";
+  $("video-btn").hidden = mode === "nocam" || !window.MediaRecorder;
+  $("none-btn").hidden = mode === "none" || mode === "nocam";
+  $("photo-btn").hidden = false;
+  if (mode === "nocam") $("photo-btn").textContent = "add photo or video";
+  draft.mode = mode;
+}
 
 async function openBook(info) {
-  draft = { ...info, rating: 0, photo: "" };
+  draft = { ...info, rating: 0, photo: "", video: null };
   $("e-name").value = info.drinkName || "";
   $("e-place").textContent = info.placeName ? `${info.placeName}${info.placeAddr ? " · " + info.placeAddr : ""}` : "";
   $("e-note").value = "";
   clearScribble(); drawDots(); $("dots-wrap").hidden = true;
-  $("snap").hidden = true; $("sketch").hidden = true; $("cam").hidden = false;
-  $("snap-btn").hidden = false; $("skip-btn").hidden = false; $("upload-btn").hidden = true;
   $("book").hidden = false;
   const book = $("book").querySelector(".book");
   book.classList.remove("open");
   requestAnimationFrame(() => requestAnimationFrame(() => book.classList.add("open")));
   sound.page();
-  // The camera turns on by itself, small, inside the polaroid.
+  polaroid("none");
+  liveCamera(); // the camera turns on by itself, small, inside the polaroid
+}
+
+// Turn on the camera. iphones show a black box unless the video is told to play and has a size.
+async function liveCamera() {
+  stopCamera();
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 640 }, audio: false });
-    $("cam").srcObject = stream;
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+    const cam = $("cam");
+    cam.srcObject = stream;
+    polaroid("live");
+    await cam.play().catch(() => {});
+    for (let i = 0; i < 30 && !cam.videoWidth; i++) await new Promise((r) => setTimeout(r, 100));
+    if (!cam.videoWidth) throw new Error("no picture");
   } catch {
-    $("cam").hidden = true; $("snap-btn").hidden = true; $("upload-btn").hidden = false; $("sketch").hidden = false;
+    stopCamera();
+    polaroid("nocam");
+    toast("camera's off. allow it in your phone's settings, or add one from your photos");
   }
 }
 
 function stopCamera() {
+  if (recorder && recorder.state === "recording") recorder.stop();
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null; $("cam").srcObject = null;
+  $("rec").hidden = true;
 }
 
 function closeBook(after) {
@@ -261,31 +376,63 @@ function closeBook(after) {
 }
 
 function setPhoto(dataUrl) {
-  draft.photo = dataUrl;
-  $("snap").src = dataUrl; $("snap").hidden = false; $("cam").hidden = true; $("sketch").hidden = true;
-  $("snap-btn").hidden = true; $("skip-btn").textContent = "retake"; $("skip-btn").hidden = false;
+  draft.photo = dataUrl; draft.video = null;
+  $("snap").src = dataUrl;
+  polaroid("photo");
+}
+function setClip(blob, poster) {
+  draft.video = blob; draft.photo = poster || "";
+  $("clip").src = URL.createObjectURL(blob);
+  $("clip").play().catch(() => {});
+  polaroid("clip");
 }
 
-$("snap-btn").onclick = async () => {
-  if (!stream) return;
+// photo button: snap (camera on), retake (after a photo/clip), or photo (after "none")
+$("photo-btn").onclick = async () => {
+  sound.tap();
+  if (draft.mode === "nocam") return $("upload").click();
+  if (draft.mode !== "live") return liveCamera();
   setPhoto(await shrink($("cam"), 360, 0.75, true));
-  stopCamera(); sound.tap();
-};
-$("skip-btn").onclick = async () => {
-  if (draft.photo) { // retake
-    draft.photo = ""; $("skip-btn").textContent = "no photo";
-    $("snap").hidden = true; return openCameraAgain();
-  }
   stopCamera();
-  $("cam").hidden = true; $("sketch").hidden = false; $("snap-btn").hidden = true; $("skip-btn").hidden = true;
 };
-async function openCameraAgain() {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-    $("cam").srcObject = stream; $("cam").hidden = false; $("snap-btn").hidden = false;
-  } catch { $("sketch").hidden = false; $("upload-btn").hidden = false; }
-}
-$("upload").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) setPhoto(await shrink(f, 360, 0.75, true)); });
+
+// video button: records up to 6 seconds (tap again to stop early)
+$("video-btn").onclick = async () => {
+  sound.tap();
+  if (recorder && recorder.state === "recording") return recorder.stop();
+  if (draft.mode !== "live") { await liveCamera(); if (draft.mode !== "live") return; }
+  const type = ["video/mp4", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
+  const poster = await shrink($("cam"), 360, 0.75, true);
+  const chunks = [];
+  recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  recorder.onstop = () => {
+    $("rec").hidden = true;
+    const blob = new Blob(chunks, { type: recorder.mimeType || type || "video/mp4" });
+    stopCamera();
+    setClip(blob, poster);
+  };
+  recorder.start();
+  $("rec").hidden = false; $("video-btn").textContent = "stop";
+  $("photo-btn").hidden = true; $("none-btn").hidden = true;
+  setTimeout(() => recorder?.state === "recording" && recorder.stop(), 6000);
+};
+
+$("none-btn").onclick = () => { sound.tap(); stopCamera(); draft.photo = ""; draft.video = null; polaroid("none"); };
+
+// No camera access: pick (or take) a photo or video with the phone's own picker.
+$("upload").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  if (f.type.startsWith("video/")) {
+    if (f.size > 40e6) return toast("that video's too long. try a few seconds");
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.src = URL.createObjectURL(f);
+    await new Promise((r) => { v.onloadeddata = r; v.onerror = r; });
+    setClip(f, v.videoWidth ? await shrink(v, 360, 0.75, true) : "");
+  } else setPhoto(await shrink(f, 360, 0.75, true));
+});
 
 // Rating dots 1-10 (this is what Drekka learns your taste from)
 function drawDots() {
@@ -344,6 +491,9 @@ $("save-entry").onclick = async () => {
     rating: draft.rating, note: $("e-note").value.trim(), photo: draft.photo,
     scribble: scribbled ? pad.toDataURL("image/png") : "",
   };
+  if (draft.video) {
+    try { await media.put(entry.id, draft.video); entry.video = true; } catch { toast("couldn't keep the video, saving the photo"); }
+  }
   if (!store.set("drekka-journal", [entry, ...journal()])) return toast("your phone is out of space for photos");
   sound.save();
   closeBook(() => {
@@ -390,18 +540,24 @@ function drawJournal() {
   $("journal-count").textContent = list.length ? `${list.length} drink${list.length > 1 ? "s" : ""} tried so far` : "";
   $("entries").innerHTML = list.length ? list.map((e) => `
     <div class="entry">
-      <div class="pic">${e.photo ? `<img src="${e.photo}" alt="">` : SKETCH}</div>
+      <div class="pic">${e.video ? `<video data-id="${e.id}" poster="${e.photo || ""}" muted loop playsinline autoplay></video>` : e.photo ? `<img src="${e.photo}" alt="">` : SKETCH}</div>
       <h4>${esc(e.drinkName)}</h4>
       <div class="where">${esc(e.placeName)}${e.placeName ? " · " : ""}${esc(e.date)}</div>
       ${e.scribble ? `<img class="scrib" src="${e.scribble}" alt="">` : ""}
       <div class="score">${e.rating}/10 <button class="link-btn del" data-id="${e.id}">remove</button></div>
       ${e.note ? `<div class="note">${esc(e.note)}</div>` : ""}
     </div>`).join("") : `<p class="empty">your journal is empty. find a drink, then tap “add to journal”.</p>`;
+  // Videos come from the phone's database.
+  $("entries").querySelectorAll("video[data-id]").forEach(async (v) => {
+    const blob = await media.get(+v.dataset.id).catch(() => null);
+    if (blob) { v.src = URL.createObjectURL(blob); v.play().catch(() => {}); }
+  });
 }
 $("entries").addEventListener("click", (e) => {
   const b = e.target.closest(".del");
   if (!b || !confirm("remove this drink from your journal?")) return;
   store.set("drekka-journal", journal().filter((x) => x.id !== +b.dataset.id));
+  media.del(+b.dataset.id).catch(() => {});
   drawJournal();
 });
 $("journal-btn").onclick = () => { sound.page(); drawJournal(); show("journal-view"); };
