@@ -200,7 +200,7 @@ function shrink(fileOrVideo, size, quality, vintage = false) {
       const c = document.createElement("canvas");
       c.width = Math.round(w * s); c.height = Math.round(h * s);
       const g = c.getContext("2d");
-      if (vintage) g.filter = "grayscale(1) sepia(0.9) contrast(0.95) brightness(1.02)";
+      if (vintage) g.filter = "grayscale(1) sepia(0.45) contrast(1.15) brightness(0.97)";
       g.drawImage(src, 0, 0, c.width, c.height);
       if (vintage) agePhoto(g, c.width, c.height);
       resolve(c.toDataURL("image/jpeg", quality));
@@ -212,19 +212,14 @@ function shrink(fileOrVideo, size, quality, vintage = false) {
   });
 }
 
-// The old-photo look: warm brown tint, faded blacks, film grain, a few fine scratches, dark corners.
+// The old-photo look: black and white with a light warm tone, a little grain, soft dark corners.
 function agePhoto(g, w, h) {
   g.filter = "none";
-  g.globalCompositeOperation = "multiply"; g.fillStyle = "rgba(150, 95, 45, 0.35)"; g.fillRect(0, 0, w, h);
-  g.globalCompositeOperation = "screen"; g.fillStyle = "rgba(70, 45, 20, 0.28)"; g.fillRect(0, 0, w, h);
-  g.globalCompositeOperation = "source-over";
   const img = g.getImageData(0, 0, w, h), d = img.data;
-  for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 30; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 26; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
   g.putImageData(img, 0, 0);
-  g.strokeStyle = "rgba(245, 230, 200, 0.35)"; g.lineWidth = 0.6;
-  for (let k = 0; k < 4; k++) { const x = Math.random() * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (Math.random() - 0.5) * 20, h); g.stroke(); }
-  const v = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.28, w / 2, h / 2, Math.max(w, h) * 0.72);
-  v.addColorStop(0, "rgba(45, 28, 12, 0)"); v.addColorStop(1, "rgba(45, 28, 12, 0.65)");
+  const v = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.72);
+  v.addColorStop(0, "rgba(40,25,10,0)"); v.addColorStop(1, "rgba(40,25,10,0.55)");
   g.fillStyle = v; g.fillRect(0, 0, w, h);
 }
 
@@ -364,23 +359,24 @@ function askFeedback() {
   const n = journal().length, last = store.get("drekka-feedback-day", "");
   if (last === today() || !(n === 1 || n === 3 || n % 5 === 0)) return;
   store.set("drekka-feedback-day", today());
-  $("fb-help").querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
-  $("fb-change").value = ""; $("fb-more").value = "";
+  $("fb-again").querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
+  $("fb-change").value = ""; $("fb-liked").value = "";
   setTimeout(() => $("feedback").showModal(), 900);
 }
-$("fb-help").addEventListener("click", (e) => {
+$("fb-again").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
   if (!b) return;
-  $("fb-help").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
+  $("fb-again").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
   sound.chip(true);
 });
 $("fb-later").onclick = () => $("feedback").close();
 $("fb-send").onclick = async () => {
   const answer = {
-    helped: $("fb-help").querySelector(".chip.on")?.dataset.v || "",
-    change: $("fb-change").value.trim(), more: $("fb-more").value.trim(),
+    change: $("fb-change").value.trim(), liked: $("fb-liked").value.trim(),
+    useAgain: $("fb-again").querySelector(".chip.on")?.dataset.v || "",
     drinks: journal().length,
   };
+  if (!(answer.change || answer.liked || answer.useAgain)) return $("feedback").close();
   $("feedback").close(); toast("thank you, that means a lot");
   if (API) fetch(API + "/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answer) }).catch(() => {});
   else store.set("drekka-feedback", [...store.get("drekka-feedback", []), { ...answer, at: today() }]);
