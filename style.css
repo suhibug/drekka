@@ -198,3 +198,4 @@ hr { border: 0; border-top: 1px dashed var(--line); margin: 16px 0 8px; }
 #dev-keys .ink-btn { width: auto; padding: 8px 22px; }
 #feedback .chips { margin-bottom: 4px; }
 #feedback textarea { margin-top: 2px; }
+.drink-label { resize: none; field-sizing: content; line-height: 1.15; overflow: hidden; }
