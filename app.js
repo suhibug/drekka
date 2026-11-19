@@ -155,7 +155,7 @@ let groups = [], price = "";
 
 // Prices like "$6.50", "₹111" or "rs 65" -> numbers. The menu's own prices split into thirds:
 // budget (cheapest third), mid, splurge (priciest third). Works in any currency.
-const priceOf = (d) => parseFloat(String(d.price || "").replace(/,/g, "").replace(/[^0-9.]/g, "")) || null;
+const priceOf = (d) => parseFloat((String(d.price || "").replace(/,/g, "").match(/\d+(\.\d+)?/) || [])[0]) || null; // "$6.50", "₹120", "rs. 40"
 function priceTiers() {
   const ps = menu.drinks.map(priceOf).filter(Boolean).sort((a, b) => a - b);
   if (ps.length < Math.max(4, menu.drinks.length / 2)) return null; // not enough prices on this menu

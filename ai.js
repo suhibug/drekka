@@ -12,7 +12,7 @@ let lastGood = null;
 // A compact answer on purpose (a list per drink instead of named fields): the AI writes about
 // half as much, so the menu comes back about twice as fast.
 const FORMAT = `Return ONLY JSON: {"found": true, "d": [[name, price, uniqueness, why, flavors, flags], ...]}
-- name: the drink's name as written. price: like "$6.50", or "".
+- name: the drink's name as written. price: as written, in the menu's own currency (like "$6.50" or "₹120"; never convert it), or "".
 - uniqueness: 1-10. 1 = you can get it almost anywhere (chocolate shake, iced latte, plain cola).
   10 = rare: only here, or a very unusual combination. Be honest and spread the scores out.
 - why: max 7 words, what makes it special (or why it's common).
