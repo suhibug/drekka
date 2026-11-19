@@ -216,3 +216,13 @@ hr { border: 0; border-top: 1px dashed var(--line); margin: 16px 0 8px; }
 
 .volume { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
 .volume input { flex: 1; accent-color: var(--ink); }
+
+/* Erasing a journal entry */
+.entry { position: relative; }
+.entry .eraser { position: absolute; top: 4px; right: 4px; z-index: 2; background: rgba(255, 251, 238, 0.9); border: 1px dashed var(--ink-soft); border-radius: 999px; width: 34px; height: 34px; display: grid; place-items: center; color: var(--ink-soft); padding: 0; }
+.entry.erasing { touch-action: none; outline: 2px dashed var(--accent); outline-offset: 3px; cursor: crosshair; }
+.entry.erasing .eraser { background: var(--ink); color: var(--paper); border-style: solid; }
+.entry.gone { transition: opacity 0.4s, transform 0.4s; opacity: 0 !important; transform: scale(0.9) rotate(-3deg); }
+.crumb { position: absolute; width: 4px; height: 3px; border-radius: 1px; background: #c98b8b; pointer-events: none; animation: crumb 0.7s ease-in forwards; }
+@keyframes crumb { to { transform: translate(var(--dx), 40px) rotate(90deg); opacity: 0; } }
+#toast { cursor: pointer; }

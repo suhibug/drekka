@@ -20,10 +20,10 @@ const aiKey = () => store.get("drekka-key", "");
 const me = () => store.get("drekka-me", null); // answers from the welcome quiz
 const today = () => new Date().toISOString().slice(0, 10);
 
-function toast(text) {
+function toast(text, ms = 2600) {
   const t = $("toast");
   t.textContent = text; t.hidden = false;
-  clearTimeout(toast.timer); toast.timer = setTimeout(() => (t.hidden = true), 2600);
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => (t.hidden = true), ms);
 }
 
 function show(view) {
@@ -599,12 +599,13 @@ function drawJournal() {
   const list = journal();
   $("journal-count").textContent = list.length ? `${list.length} drink${list.length > 1 ? "s" : ""} tried so far` : "";
   $("entries").innerHTML = list.length ? list.map((e) => `
-    <div class="entry">
+    <div class="entry" data-id="${e.id}">
+      <button class="eraser" data-id="${e.id}" aria-label="erase this drink" title="erase">${ERASER}</button>
       <div class="pic">${e.video ? `<video data-id="${e.id}" poster="${e.photo || ""}" muted loop playsinline autoplay></video>` : e.photo ? `<img src="${e.photo}" alt="">` : SKETCH}</div>
       <h4>${esc(e.drinkName)}</h4>
       <div class="where">${esc(e.placeName)}${e.placeName ? " · " : ""}${esc(e.date)}</div>
       ${e.scribble ? `<img class="scrib" src="${e.scribble}" alt="">` : ""}
-      <div class="score">${e.rating}/10 <button class="link-btn del" data-id="${e.id}">remove</button></div>
+      <div class="score">${e.rating}/10</div>
       ${e.note ? `<div class="note">${esc(e.note)}</div>` : ""}
     </div>`).join("") : `<p class="empty">your journal is empty. find a drink, then tap “add to journal”.</p>`;
   // Videos come from the phone's database.
@@ -613,11 +614,82 @@ function drawJournal() {
     if (blob) { v.src = URL.createObjectURL(blob); v.play().catch(() => {}); }
   });
 }
+// ---------- Erasing a journal entry ----------
+// Tap the eraser, then rub the page with your finger: it fades bit by bit, with eraser crumbs.
+// Rubbed out fully, it's gone (with a few seconds to undo). Tap the eraser again to stop.
+const ERASER = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M15.5 3.5l5 5-10 10H5.5l-2-2a1.5 1.5 0 010-2.1z"/><path d="M10 9l5 5M10.5 18.5H20"/></svg>`;
+const RUB_NEEDED = 900; // how much rubbing (in pixels of finger movement) erases a page
+let rubbing = null;
 $("entries").addEventListener("click", (e) => {
-  const b = e.target.closest(".del");
-  if (!b || !confirm("remove this drink from your journal?")) return;
-  store.set("drekka-journal", journal().filter((x) => x.id !== +b.dataset.id));
-  media.del(+b.dataset.id).catch(() => {});
+  const b = e.target.closest(".eraser");
+  if (!b) return;
+  const card = b.closest(".entry");
+  sound.tap();
+  if (card.classList.toggle("erasing")) {
+    $("entries").querySelectorAll(".erasing").forEach((c) => { if (c !== card) stopErasing(c); });
+    card.rubbed = card.rubbed || 0;
+    toast("rub the page with your finger to erase it");
+  } else stopErasing(card);
+});
+function stopErasing(card) {
+  card.classList.remove("erasing");
+  card.rubbed = 0;
+  card.style.opacity = ""; card.style.filter = "";
+}
+$("entries").addEventListener("pointerdown", (e) => {
+  const card = e.target.closest(".entry.erasing");
+  if (!card || e.target.closest(".eraser")) return;
+  rubbing = { card, x: e.clientX, y: e.clientY, buzzAt: 0 };
+});
+$("entries").addEventListener("pointermove", (e) => {
+  if (!rubbing) return;
+  const { card } = rubbing;
+  const step = Math.hypot(e.clientX - rubbing.x, e.clientY - rubbing.y);
+  rubbing.x = e.clientX; rubbing.y = e.clientY;
+  card.rubbed += step;
+  const done = Math.min(1, card.rubbed / RUB_NEEDED);
+  card.style.opacity = String(1 - done * 0.85);
+  card.style.filter = `blur(${done * 1.5}px) grayscale(${done})`;
+  if (step > 4 && Math.random() < 0.35) crumb(card, e.clientX, e.clientY);
+  if (card.rubbed - rubbing.buzzAt > 120) { rubbing.buzzAt = card.rubbed; sound.tap(); }
+  if (done >= 1) { rubbing = null; eraseEntry(card); }
+});
+for (const ev of ["pointerup", "pointercancel"]) $("entries").addEventListener(ev, () => (rubbing = null));
+
+// A little eraser crumb that falls away from your finger.
+function crumb(card, x, y) {
+  const c = document.createElement("i");
+  c.className = "crumb";
+  const box = card.getBoundingClientRect();
+  c.style.left = x - box.left + "px"; c.style.top = y - box.top + "px";
+  c.style.setProperty("--dx", (Math.random() * 30 - 15).toFixed(0) + "px");
+  card.appendChild(c);
+  setTimeout(() => c.remove(), 700);
+}
+
+let undoErase = null;
+function eraseEntry(card) {
+  const id = +card.dataset.id;
+  const list = journal(), entry = list.find((x) => x.id === id);
+  if (!entry) return;
+  sound.page();
+  card.classList.add("gone");
+  setTimeout(() => {
+    store.set("drekka-journal", list.filter((x) => x.id !== id));
+    drawJournal();
+    // A few seconds to change your mind; the video is only deleted after that.
+    clearTimeout(undoErase?.timer);
+    undoErase = { entry, timer: setTimeout(() => { media.del(id).catch(() => {}); undoErase = null; }, 6000) };
+    toast("erased. tap here to undo", 6000);
+  }, 400);
+}
+$("toast").addEventListener("click", () => {
+  if (!undoErase) return;
+  clearTimeout(undoErase.timer);
+  store.set("drekka-journal", [...journal(), undoErase.entry].sort((a, b) => b.id - a.id));
+  undoErase = null;
+  $("toast").hidden = true;
+  sound.save();
   drawJournal();
 });
 $("journal-btn").onclick = () => { sound.page(); drawJournal(); show("journal-view"); };
