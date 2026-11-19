@@ -50,9 +50,13 @@ async function ask(key, parts, json = true, tools = null) {
 function parseLoose(out) {
   const start = out.indexOf("{");
   if (start < 0) return null;
-  const body = out.slice(start).trim().replace(/,\s*$/, "");
+  const body = out.slice(start).replace(/```\s*$/, "").trim().replace(/,\s*$/, "");
   for (const ending of ["", "}", "]}", "]]}", "\"]]}", "\"]]]}"]) {
     try { return JSON.parse(body + ending); } catch { /* try the next ending */ }
+  }
+  // A bracket missing just before the last "}".
+  for (const ending of ["]}", "]]}"]) {
+    try { return JSON.parse(body.replace(/}\s*$/, "") + ending); } catch { /* try the next one */ }
   }
   try { return JSON.parse(out.slice(start, out.lastIndexOf("}") + 1)); } catch { return null; }
 }
@@ -100,7 +104,9 @@ export async function readMenuWithGoogle(key, place) {
   const out = await ask(key, [{ text: `Search Google for the current drink menu of this exact place: ${where}. Use its website, online ordering pages, food apps or recent posts. Only include drinks you actually found for this exact place (not a different place with a similar name); never invent any. If you can't find its menu, return {"found": false}.\n${FORMAT}` }], false, [{ google_search: {} }]);
   const menu = parseLoose(out);
   if (!menu?.found || !menu.d?.length) return { found: false, drinks: [] };
-  return tidy(menu, (ask.lastSources || []).slice(0, 2).map((w) => ({ uri: w.uri, title: (w.title || "google").replace(/^www\./, "") })));
+  const found = (ask.lastSources || []).slice(0, 2).map((w) => ({ uri: w.uri, title: (w.title || "google").replace(/^www\./, "") }));
+  // Google doesn't always say which pages it used: then link to the same search.
+  return tidy(menu, found.length ? found : [{ uri: "https://www.google.com/search?q=" + encodeURIComponent(where + " menu"), title: "google search" }]);
 }
 
 // image: base64 PNG of the scribble pad. Returns a number 1-10, or null if it can't tell.
