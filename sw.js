@@ -1,6 +1,6 @@
 // Keeps the app's own files on the device so it opens fast and works offline.
 // Menus and AI answers are never cached here (the app saves those itself, per day).
-const CACHE = "drekka-v9";
+const CACHE = "drekka-v10";
 const FILES = ["./", "index.html", "style.css", "app.js", "config.js", "ai.js", "menu.js", "quiz.js", "picks.js", "sound.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())));

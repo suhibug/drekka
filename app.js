@@ -360,7 +360,7 @@ function askFeedback() {
   if (last === today() || !(n === 1 || n === 3 || n % 5 === 0)) return;
   store.set("drekka-feedback-day", today());
   $("fb-again").querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
-  $("fb-change").value = ""; $("fb-liked").value = "";
+  $("fb-text").value = "";
   setTimeout(() => $("feedback").showModal(), 900);
 }
 $("fb-again").addEventListener("click", (e) => {
@@ -372,11 +372,11 @@ $("fb-again").addEventListener("click", (e) => {
 $("fb-later").onclick = () => $("feedback").close();
 $("fb-send").onclick = async () => {
   const answer = {
-    change: $("fb-change").value.trim(), liked: $("fb-liked").value.trim(),
     useAgain: $("fb-again").querySelector(".chip.on")?.dataset.v || "",
+    thoughts: $("fb-text").value.trim(),
     drinks: journal().length,
   };
-  if (!(answer.change || answer.liked || answer.useAgain)) return $("feedback").close();
+  if (!(answer.thoughts || answer.useAgain)) return $("feedback").close();
   $("feedback").close(); toast("thank you, that means a lot");
   if (API) fetch(API + "/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answer) }).catch(() => {});
   else store.set("drekka-feedback", [...store.get("drekka-feedback", []), { ...answer, at: today() }]);
