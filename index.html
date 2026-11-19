@@ -89,6 +89,9 @@
             <button id="none-btn" class="mini">none</button>
           </div>
           <input id="upload" type="file" accept="image/*,video/*" hidden>
+          <!-- the phone's own camera app: works even when the live camera isn't allowed -->
+          <input id="take-photo" type="file" accept="image/*" capture="environment" hidden>
+          <input id="take-video" type="file" accept="video/*" capture="environment" hidden>
         </div>
         <div class="rating-box">
           <p class="hand">scribble your rating (like 8/10)</p>

@@ -171,9 +171,9 @@ function inPrice(d, tiers) {
 // What each label means, shown small under it.
 const HINTS = {
   rare: "the rarest drink here that still fits your taste",
-  yours: "picked for you, from your quiz and your ratings",
+  match: "the one that fits your taste best, from your quiz and ratings",
   signature: "what this place is known for",
-  wild: "a surprise outside your usual, on purpose",
+  "wild card": "a surprise outside your usual, on purpose",
 };
 
 // Adds 3 picks to the page. title: what changed ("3 more", "mango", "budget"...), empty for the first ones.
@@ -321,10 +321,10 @@ function polaroid(mode) {
   $("sketch").hidden = !["none", "nocam"].includes(mode);
   $("photo-btn").textContent = mode === "live" ? "snap" : mode === "photo" || mode === "clip" ? "retake" : "photo";
   $("video-btn").textContent = "video";
-  $("video-btn").hidden = mode === "nocam" || !window.MediaRecorder;
+  $("video-btn").hidden = !window.MediaRecorder && mode !== "nocam";
   $("none-btn").hidden = mode === "none" || mode === "nocam";
   $("photo-btn").hidden = false;
-  if (mode === "nocam") $("photo-btn").textContent = "add photo or video";
+  if (mode === "nocam") $("photo-btn").textContent = "photo";
   draft.mode = mode;
 }
 
@@ -355,9 +355,10 @@ async function liveCamera() {
     for (let i = 0; i < 30 && !cam.videoWidth; i++) await new Promise((r) => setTimeout(r, 100));
     if (!cam.videoWidth) throw new Error("no picture");
   } catch {
+    // Blocked or unavailable: the buttons now open the phone's own camera app instead,
+    // which never needs a permission (or a trip to settings).
     stopCamera();
     polaroid("nocam");
-    toast("camera's off. allow it in your phone's settings, or add one from your photos");
   }
 }
 
@@ -390,7 +391,7 @@ function setClip(blob, poster) {
 // photo button: snap (camera on), retake (after a photo/clip), or photo (after "none")
 $("photo-btn").onclick = async () => {
   sound.tap();
-  if (draft.mode === "nocam") return $("upload").click();
+  if (draft.mode === "nocam") return $("take-photo").click();
   if (draft.mode !== "live") return liveCamera();
   setPhoto(await shrink($("cam"), 360, 0.75, true));
   stopCamera();
@@ -400,6 +401,7 @@ $("photo-btn").onclick = async () => {
 $("video-btn").onclick = async () => {
   sound.tap();
   if (recorder && recorder.state === "recording") return recorder.stop();
+  if (draft.mode === "nocam") return $("take-video").click();
   if (draft.mode !== "live") { await liveCamera(); if (draft.mode !== "live") return; }
   const type = ["video/mp4", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
   const poster = await shrink($("cam"), 360, 0.75, true);
@@ -421,7 +423,7 @@ $("video-btn").onclick = async () => {
 $("none-btn").onclick = () => { sound.tap(); stopCamera(); draft.photo = ""; draft.video = null; polaroid("none"); };
 
 // No camera access: pick (or take) a photo or video with the phone's own picker.
-$("upload").addEventListener("change", async (e) => {
+async function fromPicker(e) {
   const f = e.target.files[0];
   e.target.value = "";
   if (!f) return;
@@ -432,7 +434,8 @@ $("upload").addEventListener("change", async (e) => {
     await new Promise((r) => { v.onloadeddata = r; v.onerror = r; });
     setClip(f, v.videoWidth ? await shrink(v, 360, 0.75, true) : "");
   } else setPhoto(await shrink(f, 360, 0.75, true));
-});
+}
+for (const id of ["take-photo", "take-video", "upload"]) $(id).addEventListener("change", fromPicker);
 
 // Rating dots 1-10 (this is what Drekka learns your taste from)
 function drawDots() {

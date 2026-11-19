@@ -1,8 +1,8 @@
 // Picks: chooses 3 drinks from a menu. Pure logic, no screen code.
 //   1. rare       - the rarest drink here that still fits you
-//   2. yours      - leans toward your quiz answers and the flavors you rated high
+//   2. match      - leans toward your quiz answers and the flavors you rated high
 //      signature  - the place's signature (if we know nothing about your taste yet)
-//   3. wild       - a rare drink outside your usual taste, on purpose
+//   3. wild card  - a rare drink outside your usual taste, on purpose
 
 // What you like: flavor -> score (positive = you like it). Starts from the welcome quiz
 // (prefs, see quiz.js profileFrom) and keeps learning from every rating in your journal.
@@ -70,8 +70,8 @@ export function pickThree(drinks, entries, placeName, chosen = [], skip = [], pr
 
   return [
     unique && { kind: "unique", label: "rare", drink: unique },
-    forYou && { kind: "forYou", label: hasTaste ? "yours" : "signature", drink: forYou },
-    surprise && { kind: "surprise", label: "wild", drink: surprise },
+    forYou && { kind: "forYou", label: hasTaste ? "match" : "signature", drink: forYou },
+    surprise && { kind: "surprise", label: "wild card", drink: surprise },
   ].filter(Boolean);
 }
 
