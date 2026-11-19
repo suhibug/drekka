@@ -18,3 +18,4 @@ CLAUDE.md
 wrangler.jsonc
 .gitignore
 .assetsignore
+deploy.sh

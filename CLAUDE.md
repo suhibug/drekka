@@ -22,3 +22,8 @@ Suhitha's own app idea: find the most unique drink at any place, plus a scrapboo
 - Keep it free for her. The only paid step is the App Store ($99/yr), and only when she decides.
 - Sounds must be audible but gentle, and always mutable. After testing in a browser, mute or stop the sound and close the browser.
 - Keep the code simple to read. She's learning, and she's the product owner, not the coder.
+
+## Hosting (free, Cloudflare)
+- The app: https://drekka.pages.dev (classic Cloudflare Pages project "drekka"; only the app's files are uploaded).
+- The server: https://drekka.drekka.workers.dev/api (Worker "drekka": wrangler.jsonc + worker/index.js; KV for menus and feedback; GEMINI_KEY and JINA_KEY are secrets).
+- Update both: `./deploy.sh`. GitHub Pages (suhibug.github.io/drekka) still works too, but share drekka.pages.dev.

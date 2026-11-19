@@ -8,7 +8,7 @@
 import { fetchMenuText } from "../menu.js";
 import { readMenu, readRating } from "../ai.js";
 
-const ALLOWED = ["https://drekka.drekka.workers.dev", "https://suhibug.github.io", "http://127.0.0.1:8765", "http://127.0.0.1:8787", "http://localhost:8000"];
+const ALLOWED = ["https://drekka.pages.dev", "https://drekka.drekka.workers.dev", "https://suhibug.github.io", "http://127.0.0.1:8765", "http://127.0.0.1:8787", "http://localhost:8000"];
 const MENU_DAYS = 3; // menus change, so remembered menus expire after a few days
 
 function reply(body, origin, status = 200) {
