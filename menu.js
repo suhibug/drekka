@@ -10,11 +10,13 @@ const READER = "https://r.jina.ai/";
 // OpenStreetMap and Wikidata ask apps to say who they are, or they may refuse the request.
 const WHO = { "User-Agent": "drekka/1.0 (https://github.com/suhibug/drekka)" };
 const SEARCH = "https://s.jina.ai/?q=";
-const MENU_WORDS = /menu|drink|beverage|bev\b|coffee|tea|cocktail|bar\b|smoothie|shake|boba|juice|soda/i;
-const DRINK_LINK = /drink|bev|coffee|tea|cocktail/i;
+const MENU_WORDS = /menu|drink|beverage|bev\b|coffee|tea|cocktail|bar\b|smoothie|shake|boba|juice|soda|beer|on-?tap|taps\b|tap-?list|draft|draught/i;
+const DRINK_LINK = /drink|bev|coffee|tea|cocktail|beer|on-?tap|taps\b|tap-?list|draft/i;
+// Breweries often keep their tap list on untappd: those pages count as the brewery's own.
+const TAP_SITE = /(^|\.)untappd\.com$/;
 const SKIP = /\.(png|jpe?g|gif|webp|svg|ico|css|js)(\?|$)|instagram|facebook|tiktok|twitter|x\.com|yelp|google\.|maps|mailto:|tel:|careers|jobs|privacy|terms|login|cart|gift/i;
 // Words that show a page really lists drinks.
-const DRINKY = /latte|espresso|coffee|matcha|tea\b|chai|lemonade|soda|smoothie|juice|cocktail|mocktail|mojito|margarita|boba|refresher|cold brew|shake|spritz|sangria|frapp|dr pepper|coke|sprite|puree|syrup|lassi|falooda|buttermilk|horchata|agua fresca/gi;
+const DRINKY = /latte|espresso|coffee|matcha|tea\b|chai|lemonade|soda|smoothie|juice|cocktail|mocktail|mojito|margarita|boba|refresher|cold brew|shake|spritz|sangria|frapp|dr pepper|coke|sprite|puree|syrup|lassi|falooda|buttermilk|horchata|agua fresca|\bipa\b|lager|stout|porter|pilsner|hazy|\babv\b|seltzer|cider|\bale\b|saison|hefeweizen/gi;
 // Food apps whose pages hide menus behind pictures or sign-ins: still searched, but read last.
 const WALLED = /zomato|swiggy|district\.in|ubereats|doordash|grubhub|postmates|toasttab/;
 
@@ -55,35 +57,43 @@ async function read(url, jinaKey) {
 }
 
 const drinkiness = (text) => (text.match(DRINKY) || []).length;
+// Words that show a page lists beers (for breweries, where the tap list is what people want).
+const BEERY = /\bipa\b|lager|stout|porter|pilsner|hazy|\babv\b|\bale\b|saison|hefeweizen|k[oö]lsch|\bibu\b|wheat beer|amber/gi;
+const beeriness = (text) => (text.match(BEERY) || []).length;
+const BEER_LINK = /beer|on-?tap|taps\b|tap-?list|draft|untappd/i;
 
-function links(text, site) {
+function links(text, site, tap = false) {
   const host = new URL(site).hostname.replace(/^www\./, "");
   const found = new Set();
   for (const [, label, url] of text.matchAll(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g)) {
     if (SKIP.test(url)) continue;
     let u; try { u = new URL(url); } catch { continue; }
-    if (u.hostname.replace(/^www\./, "") !== host) continue;
+    if (u.hostname.replace(/^www\./, "") !== host && !TAP_SITE.test(u.hostname)) continue;
     // Look only at the page path and the link's words (not the domain, which may contain "tea" etc.)
-    if (MENU_WORDS.test(u.pathname + u.search) || MENU_WORDS.test(label)) found.add(u.href.replace(/#.*$/, ""));
+    // Untappd links count only when they say what's on tap ("today's taps on untappd").
+    if (MENU_WORDS.test(u.pathname + u.search) || MENU_WORDS.test(label)) found.add(TAP_SITE.test(u.hostname) && !tap ? "" : u.href.replace(/#.*$/, ""));
+    found.delete("");
   }
-  // Drink pages first, then general menu pages.
-  return [...found].sort((a, b) => (DRINK_LINK.test(b) ? 1 : 0) - (DRINK_LINK.test(a) ? 1 : 0));
+  // Drink pages first, then general menu pages. Breweries: beer and tap pages before anything else.
+  const rank = (u) => (tap && BEER_LINK.test(u) ? 2 : 0) + (DRINK_LINK.test(u) ? 1 : 0);
+  return [...found].sort((a, b) => rank(b) - rank(a));
 }
 
 // Read the place's own website. Returns pages.
-async function fromWebsite(site, jinaKey) {
+async function fromWebsite(site, jinaKey, tap = false) {
   const pages = [];
   const guess = new URL(site).origin + "/menu";
   const [homeR, guessR] = await Promise.allSettled([read(site, jinaKey), guess === site ? Promise.reject() : read(guess, jinaKey)]);
   if (homeR.status === "fulfilled") pages.push({ url: site, text: homeR.value });
   if (guessR.status === "fulfilled" && !/404|not found/i.test(guessR.value.slice(0, 400))) pages.push({ url: guess, text: guessR.value });
   if (!pages.length) return pages;
-  const enough = () => Math.max(...pages.map((p) => drinkiness(p.text))) >= 12;
+  // Enough = a real drinks list. For a brewery, it also needs its beers (the tap list).
+  const enough = () => Math.max(...pages.map((p) => drinkiness(p.text))) >= 12 && (!tap || Math.max(...pages.map((p) => beeriness(p.text))) >= 6);
   // Only dig deeper if we don't have a real drinks list yet (saves time).
   for (let hop = 0; hop < 2 && !enough(); hop++) {
-    const next = pages.flatMap((p) => links(p.text, site))
+    const next = pages.flatMap((p) => links(p.text, site, tap))
       .filter((u, i, all) => all.indexOf(u) === i && !pages.some((p) => p.url === u))
-      .filter((u) => hop === 0 || DRINK_LINK.test(new URL(u).pathname + new URL(u).search))
+      .filter((u) => hop === 0 || DRINK_LINK.test(new URL(u).pathname + new URL(u).search) || (tap && BEER_LINK.test(u)))
       .slice(0, 2);
     if (!next.length) break;
     const got = await Promise.allSettled(next.map((u) => read(u, jinaKey)));
@@ -131,7 +141,11 @@ async function fromSearch(place, jinaKey) {
       return url && !/facebook|instagram|tiktok|pinterest|youtube/.test(url) ? { url, text: chunk.slice(0, 15000) } : null;
     }).filter(Boolean);
   };
-  let found = (await Promise.allSettled([ask(`${place.name} ${city} menu`), ask(`${place.name} ${city} drinks beverages menu`)]))
+  // Breweries: look for what's on tap (their site, untappd, beer menus), not a food menu.
+  const queries = place.tap
+    ? [`${place.name} ${city} on tap beer list`, `${place.name} ${city} untappd beer menu`]
+    : [`${place.name} ${city} menu`, `${place.name} ${city} drinks beverages menu`];
+  let found = (await Promise.allSettled(queries.map(ask)))
     .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
     .filter((p, i, all) => all.findIndex((x) => x.url === p.url) === i)
     .filter((p) => namesPlace(p, place.name));
@@ -150,9 +164,10 @@ async function fromSearch(place, jinaKey) {
 // Returns { site, pages: [{ url, text }] } (most drink-filled page first) or null if nothing was found.
 export async function fetchMenuText(place, { jinaKey = "" } = {}) {
   const site = await findWebsite(place);
-  let pages = site ? await fromWebsite(site, jinaKey).catch(() => []) : [];
+  let pages = site ? await fromWebsite(site, jinaKey, !!place.tap).catch(() => []) : [];
   const best = pages.length ? Math.max(...pages.map((p) => drinkiness(p.text))) : 0;
-  pages.sort((a, b) => drinkiness(b.text) - drinkiness(a.text));
+  // Most drink-filled page first (breweries: the page with the most beers first, so the tap list isn't cut off).
+  pages.sort((a, b) => (place.tap ? beeriness(b.text) - beeriness(a.text) : 0) || drinkiness(b.text) - drinkiness(a.text));
   // No website, or no real drinks on it: add web search results, after the official pages
   // (they're the most accurate). Search is the slow step, so only when it's needed.
   if (best < 4 && jinaKey) {

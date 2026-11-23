@@ -35,6 +35,14 @@ export function favoriteHere(entries, placeName) {
 // drinks: [{ name, uniqueness, flavors, popular, seasonal }]
 // chosen: flavor chips the person tapped (empty = any)
 // skip:   drink names already shown, so "show me more" gives new ones
+// Alcoholic, by the ai's flag or by its name (in case the ai missed it). "virgin" and "mocktail" never count.
+const BOOZE = /\b(wine|beer|ipa|lager|stout|pilsner|ale|cider|seltzer|cocktail|margarita|mojito|martini|vodka|rum|gin|tequila|mezcal|whiske?y|bourbon|scotch|sangria|mimosa|aperol|spritz|sake|soju|prosecco|champagne|cabernet|pinot|merlot|chardonnay|sauvignon|ros[eé]|old fashioned|negroni|paloma|daiquiri|liqueur)\b/i;
+export const isAlcohol = (d) => {
+  const text = `${d.name} ${d.description || ""} ${d.why || ""}`;
+  if (/virgin|mocktail|non-?alcoholic|zero.?proof|\bn\/a\b|root beer|ginger ale|ginger beer/i.test(text)) return false;
+  return !!d.alcohol || BOOZE.test(text);
+};
+
 export function pickThree(drinks, entries, placeName, chosen = [], skip = [], prefs = null) {
   const profile = tasteProfile(entries, prefs);
   const hasTaste = Object.keys(profile).length > 0;
@@ -45,7 +53,7 @@ export function pickThree(drinks, entries, placeName, chosen = [], skip = [], pr
 
   // Hard no's are never picked: not even as the rare one or the wild card.
   const noF = prefs?.noFlavors || [], noW = prefs?.noWords || [];
-  const hardNo = (d) => (prefs?.noAlcohol && d.alcohol) || (d.flavors || []).some((f) => noF.includes(f)) ||
+  const hardNo = (d) => (prefs?.noAlcohol && isAlcohol(d)) || (d.flavors || []).some((f) => noF.includes(f)) ||
     noW.some((w) => `${d.name} ${d.description || ""}`.toLowerCase().includes(w));
   let pool = drinks.filter((d) => !skipped.has(key(d.name)) && !hardNo(d));
   if (chosen.length) pool = pool.filter((d) => (d.flavors || []).some((f) => chosen.includes(f)));

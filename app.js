@@ -1,11 +1,19 @@
 // Drekka: find the most unique drink at a place, and keep a journal of drinks you try.
 // Screens: search -> picks -> (optional) journal page. Everything is saved on this device only.
+import { celebrate } from "./celebrate.js";
 import { readMenu, readRating } from "./ai.js";
 import { API } from "./config.js";
 import { fetchMenuText } from "./menu.js";
-import { pickThree, flavorChips, favoriteHere } from "./picks.js";
+import { pickThree, flavorChips, favoriteHere, isAlcohol } from "./picks.js";
 import { sound, isMuted, getVolume } from "./sound.js";
 import { runQuiz, profileFrom, summary } from "./quiz.js";
+import { runIntro } from "./intro.js";
+import { brewing } from "./waiting.js";
+import { LOOKS, applyLook, setLook, currentLook } from "./look.js";
+import { runTour } from "./tour.js";
+
+applyLook(); // the look you chose (paper, night, matcha...) before anything shows
+import { KINDS, whereAmI, findNearby, chooseFor, howFar } from "./nearby.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -95,6 +103,7 @@ if (API) fetch(API + "/where", { method: "POST", headers: { "Content-Type": "app
 
 async function findPlaces(q) {
   let rows = "";
+  const generic = !!kindFromWord(q); // "cafe", "bar"...: no menu head starts or google searches for that
   try {
     const bias = near ? `&lat=${near.lat}&lon=${near.lon}` : "";
     const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=15${bias}`);
@@ -109,7 +118,7 @@ async function findPlaces(q) {
     mapHasIt = data.features.some((f) => f.properties.name && sameName(f.properties.name, q));
     // Start reading the top result's menu right away, so it's (nearly) ready when it's tapped.
     const top = data.features.find((f) => f.properties.name)?.properties;
-    if (API && top && mapHasIt && $("search").value.trim() === q) {
+    if (API && top && mapHasIt && !generic && $("search").value.trim() === q) {
       const addr = [[top.housenumber, top.street].filter(Boolean).join(" "), top.city || top.town || top.village, top.state, top.country].filter(Boolean).join(", ");
       getMenu({ name: top.name, address: addr, osm: top.osm_type + top.osm_id }, true).catch(() => {});
     }
@@ -118,7 +127,7 @@ async function findPlaces(q) {
   // The map doesn't know every place (new or small spots are often missing). Then google maps is
   // asked too (free up to a monthly limit, on the server), and its matches go on top.
   let gRows = "", gTop = null;
-  if (API && !mapHasIt && q.length >= 3) {
+  if (API && !mapHasIt && !generic && q.length >= 3) {
     try {
       const res = await fetch(API + "/places", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q, lat: near?.lat, lon: near?.lon }) });
       const found = ((await res.json()).places || []).filter((g) => sameName(g.name, q)).slice(0, 4);
@@ -131,14 +140,29 @@ async function findPlaces(q) {
   // goes on top and the web search starts by itself once you stop typing, so it's ready when you tap.
   const known = mapHasIt || gTop;
   const anyway = `<li><button class="anyway" data-name="${esc(q)}" data-addr="" data-osm=""><b>${known ? "not here? look up" : "search the web for"} “${esc(q)}”</b><span>${known ? "drekka will search the web for its menu" : "the map doesn't know it yet, so drekka is already looking online"}</span></button></li>`;
-  $("results").innerHTML = mapHasIt ? rows + anyway : gTop ? gRows + rows + anyway : anyway + rows;
-  if (API && !mapHasIt && (gTop || q.split(/\s+/).length >= 2)) {
+  // Typed a kind of place ("cafe", "boba", "bar") instead of a name? Offer to find one nearby.
+  const kind = kindFromWord(q);
+  const nearRow = kind ? `<li><button class="anyway near-row" data-near="${esc(kind.t)}"><b>looking for any ${esc(kind.t === "surprise me" ? "spot" : kind.t)} near you?</b><span>tap here and drekka will find one with you</span></button></li>` : "";
+  $("results").innerHTML = nearRow + (mapHasIt ? rows + anyway : gTop ? gRows + rows + anyway : anyway + rows);
+  if (API && !mapHasIt && !generic && (gTop || q.split(/\s+/).length >= 2)) {
     clearTimeout(webTimer);
     const head = gTop ? { name: gTop.name, address: gTop.address, osm: "", gid: gTop.gid } : { name: q, address: "", osm: "" };
     webTimer = setTimeout(() => { if ($("search").value.trim() === q) getMenu(head, true).catch(() => {}); }, gTop ? 300 : 1200);
   }
 }
 let mapHasIt = false, webTimer;
+// Words that name a kind of place, not a place.
+const KIND_WORDS = [
+  [/^(cafe|café|cafes|coffee|coffee shop|coffeeshop)s?$/, "café"], [/^(boba|bubble tea|tea|tea shop|milk tea)$/, "boba & tea"],
+  [/^(juice|smoothie|smoothies|juice bar)$/, "juice & smoothies"], [/^(dessert|ice cream|shake|shakes|milkshake)$/, "dessert & shakes"],
+  [/^(bar|bars|pub|pubs|cocktail|cocktails|cocktail bar)$/, "bar"], [/^(brewery|breweries|beer|taproom|tap room)$/, "brewery"],
+  [/^(restaurant|restaurants|food)$/, "restaurant"], [/^(anything|any|somewhere|drinks?|near me)$/, "surprise me"],
+];
+function kindFromWord(q) {
+  const w = q.toLowerCase().trim().replace(/\s+near me$/, "").trim();
+  const hit = KIND_WORDS.find(([re]) => re.test(w));
+  return hit ? KINDS.find((k) => k.t === hit[1]) : null;
+}
 // Loose name match: "honey to a bee" ~ "Honey 2 A Bee", "swig" ~ "Swig Tempe".
 const squashName = (t) => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ")
   .replace(/\b(to|too|two)\b/g, "2").replace(/\b(for|four)\b/g, "4").replace(/\b(and|n|the)\b/g, " ").replace(/\s+/g, "");
@@ -152,8 +176,67 @@ $("results").addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   sound.tap();
+  if (b.dataset.near !== undefined) return openNearby(b.dataset.near);
   openPlace({ name: b.dataset.name, address: b.dataset.addr, osm: b.dataset.osm, gid: b.dataset.gid || "" });
 });
+
+// ---------- 1b. No place in mind: find one near you ----------
+// Step 1: what kind of spot. Step 2: where you are (asks for location once). Step 3: a short list
+// of real places nearby, plus "you choose for me".
+$("near-btn").onclick = () => { sound.tap(); openNearby(); };
+$("near-close").onclick = () => $("nearby").close();
+function openNearby(kindName) {
+  if (!$("nearby").open) $("nearby").showModal();
+  if (kindName) return nearList(KINDS.find((k) => k.t === kindName));
+  $("near-body").innerHTML = `<h2 class="ink">what are you in the mood for?</h2>
+    <p class="hand">pick a kind of spot, and drekka will look around you.</p>
+    <div class="quiz-chips">${KINDS.map((k) => `<button class="chip big" data-k="${esc(k.t)}">${esc(k.t)}</button>`).join("")}</div>`;
+}
+$("near-body").addEventListener("click", (e) => {
+  const k = e.target.closest("[data-k]"), p = e.target.closest("[data-pick]"), any = e.target.closest("#choose-for-me");
+  if (k) { sound.chip(true); nearList(KINDS.find((x) => x.t === k.dataset.k)); }
+  if (p) { sound.tap(); goTo(nearPlaces[+p.dataset.pick]); }
+  if (any) { sound.reveal(); spin(); }
+  if (e.target.closest("#near-again")) { sound.tap(); openNearby(); }
+});
+let nearPlaces = [], nearKind = "";
+async function nearList(kind) {
+  nearKind = kind.t;
+  $("near-body").innerHTML = `<h2 class="ink">${esc(kind.t)} near you</h2>
+    <p class="hand"><span class="dots-loading">looking around you</span></p>
+    <p class="small">your phone may ask to share your location. drekka only uses it for this search and doesn't save it.</p>`;
+  const at = await whereAmI(near);
+  if (!$("nearby").open) return;
+  if (!at) {
+    $("near-body").innerHTML = `<h2 class="ink">i couldn't tell where you are</h2><p class="hand">allow location for drekka in your browser settings, or type the place's name instead.</p><button class="link-btn" id="near-again">← back</button>`;
+    return;
+  }
+  try { nearPlaces = await findNearby(kind, at, API); }
+  catch (err) { $("near-body").innerHTML = `<h2 class="ink">hmm</h2><p class="hand">${esc(err.message)}</p><button class="link-btn" id="near-again">← back</button>`; return; }
+  if (!$("nearby").open) return;
+  if (!nearPlaces.length) {
+    $("near-body").innerHTML = `<h2 class="ink">no ${esc(kind.t)} close by</h2><p class="hand">the map doesn't know one near you. try another kind of spot.</p><button class="link-btn" id="near-again">← pick another kind</button>`;
+    return;
+  }
+  $("near-body").innerHTML = `<h2 class="ink">${esc(kind.t === "surprise me" ? "spots" : kind.t)} near you</h2>
+    <button class="ink-btn" id="choose-for-me">just pick one for me</button>
+    <ul class="results near-list">${nearPlaces.map((p, i) => `<li><button data-pick="${i}"><b>${esc(p.name)}</b><span>${p.rating ? `★ ${p.rating.toFixed(1)} (${p.reviews}) · ` : ""}${esc(howFar(p.km))} away${p.site ? "" : " · menu may be hard to find"}</span></button></li>`).join("")}</ul>
+    <p class="small">${nearPlaces[0].rating ? "best-loved spots first, from google reviews. " : "closest first, from openstreetmap. "}${at.exact ? "" : "using your rough location, so distances are a guess."}</p>
+    <button class="link-btn" id="near-again">← pick another kind</button>`;
+}
+// "you choose for me": a little shuffle through the names, then it lands on one.
+function spin() {
+  const pick = chooseFor(nearPlaces), btn = $("choose-for-me");
+  let n = 0;
+  const t = setInterval(() => {
+    btn.textContent = nearPlaces[n++ % nearPlaces.length].name;
+    if (n > 12) { clearInterval(t); btn.textContent = `let's go to ${pick.name}!`; setTimeout(() => goTo(pick), 900); }
+  }, 90);
+}
+function goTo(p) {
+  $("nearby").close();
+  openPlace({ name: p.name, address: p.address, osm: p.osm || "", gid: p.gid || "", site: p.site || "", tap: !!p.tap, bar: nearKind === "bar" });
+}
 
 // ---------- 2. Picks ----------
 let place = null, menu = null, chosen = [], shown = [];
@@ -163,6 +246,7 @@ async function openPlace(p) {
   show("picks-view");
   $("place-name").textContent = p.name;
   $("place-addr").textContent = p.address || "";
+  $("heads-up").hidden = true;
   $("cards").innerHTML = ""; $("after-picks").hidden = true;
 
   const fav = favoriteHere(journal(), p.name);
@@ -180,25 +264,28 @@ async function openPlace(p) {
   if (cached && cached.day === today()) { menu = cached.menu; return showPicks(); }
 
   // Find their website, open the menu pages, then let the ai pick out the drinks.
-  const say = (t) => { if (place === p) $("status").innerHTML = `<span class="dots-loading">${t}</span>`; };
-  say("reading their menu");
-  const slow = setTimeout(() => say("picking the rarest drinks"), 4000);
+  // Fast answers show straight away; if it takes over a second, a drink gets "made" on screen.
+  $("status").textContent = "";
+  const wait = brewing($("status"), p.name, sound);
+  stopWaiting = wait.stop;
   try {
     menu = await getMenu(p);
   } catch (err) {
-    clearTimeout(slow);
+    wait.stop();
     if (place !== p) return;
     $("status").textContent = err.message;
     return;
   }
-  clearTimeout(slow);
-  if (place !== p) return; // they already moved on to another place
+  if (place !== p) return wait.stop(); // they already moved on to another place
   if (!menu.found) {
+    wait.stop();
     $("status").textContent = "i looked everywhere and couldn't find this place's drink menu online. try another spot nearby.";
     return;
   }
   store.set(cacheKey, { day: today(), menu });
-  showPicks();
+  store.set("drekka-places-seen", store.get("drekka-places-seen", 0) + 1);
+  // Fast: the picks show right away. Slow: a "see my picks" button, so nothing jumps while you read.
+  wait.ready(() => { if (place === p) showPicks(); });
 }
 
 // The picks pile up on the page (newest at the bottom), so earlier ones stay there to compare.
@@ -233,11 +320,16 @@ function showPicks(title = "") {
   const tiers = priceTiers();
   const drinks = menu.drinks.filter((d) => inPrice(d, tiers));
   const prefs = profileFrom(me());
+  // No alcohol unless you said you like cocktails or beer & wine in the quiz, or you chose a bar
+  // or brewery yourself. A hard "no alcohol" always wins.
+  if (prefs && !prefs.likesAlcohol && !(place.tap || place.bar)) prefs.noAlcohol = true;
   let picks = pickThree(drinks, journal(), place.name, chosen, shown, prefs);
   // A new flavor or price may only match drinks shown earlier: show them again rather than nothing.
   if (!picks.length && title && title !== "3 more") picks = pickThree(drinks, journal(), place.name, chosen, [], prefs);
   if (!picks.length) {
-    groups.push(chosen.length || price ? noMatch(prefs) : { title, empty: "that's every drink here that fits you." });
+    const allBooze = !title && !groups.length && prefs?.noAlcohol && drinks.length && drinks.every(isAlcohol);
+    groups.push(allBooze ? { title, empty: "everything i found here has alcohol, and you didn't say you drink. want to try another spot?" }
+      : chosen.length || price ? noMatch(prefs) : { title, empty: "that's every drink here that fits you." });
   } else {
     // Plus a "steal": the best fit among this menu's lower prices (when it has prices and
     // no price is chosen yet), for anyone who'd like to spend less.
@@ -268,6 +360,11 @@ function noMatch(prefs) {
 
 function drawPicks() {
   $("status").textContent = "";
+  // A one-line heads-up: this menu is from the web, so the place may differ today.
+  $("heads-up").textContent = menu.tap || place.tap
+    ? "heads up: drekka found this tap list online. taps change often, sometimes daily, so ask what's pouring today."
+    : "heads up: drekka found this menu online. the place might have changed it, or be out of something today.";
+  $("heads-up").hidden = false;
   const group = (g) => `<section class="group">
     ${g.title ? `<h3 class="group-title">${esc(g.title)}</h3>` : ""}
     ${g.empty ? `<p class="hand">${esc(g.empty)}</p>` : g.picks.map(card).join("")}
@@ -339,7 +436,13 @@ $("more-cards").addEventListener("click", (e) => {
   chosen = [b.dataset.idea]; price = "";
   showPicks(filterTitle());
 });
-$("back-btn").onclick = () => { place = null; show("search-view"); $("search").focus(); };
+let stopWaiting = () => {};
+$("back-btn").onclick = () => {
+  stopWaiting();
+  const sawPicks = !!menu?.found;
+  place = null; show("search-view");
+  if (sawPicks) askFeedback(true); else $("search").focus();
+};
 
 // Make a picture smaller so it saves and sends quickly. Returns a data URL.
 // vintage = true gives it an old journal photo look: black and white, warm sepia, grain, dark corners.
@@ -594,37 +697,43 @@ async function saveEntry() {
   draft.saved = true;
   sound.save();
   closeBook(() => {
-    toast(`cheers! saved as ${entry.rating}/10`);
     if (!$("journal-view").hidden) drawJournal();
-    askFeedback();
+    celebrate(entry, sound, () => askFeedback());
   });
 }
 
-// ---------- Feedback (after saving a drink, now and then) ----------
-// Asks after the 1st and 3rd saved drink, then every 5th. Never twice in one day.
-function askFeedback() {
-  const n = journal().length, last = store.get("drekka-feedback-day", "");
-  if (last === today() || !(n === 1 || n === 3 || n % 5 === 0)) return;
-  store.set("drekka-feedback-day", today());
-  $("fb-again").querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
-  $("fb-text").value = "";
-  setTimeout(() => $("feedback").showModal(), 900);
+// ---------- Feedback about the app (not the drink or the place) ----------
+// Anyone can open it any time ("tell me what you think of drekka"). It also asks by itself, now and
+// then: after the 1st and 3rd saved drink, then every 5th, and once after someone's first place
+// (lots of people try drekka without saving a drink). Never twice in one day.
+function openFeedback() {
+  $("feedback").querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
+  $("fb-change").value = ""; $("fb-like").value = "";
+  $("feedback").showModal();
 }
-$("fb-again").addEventListener("click", (e) => {
+function askFeedback(afterPlace = false) {
+  const n = journal().length, last = store.get("drekka-feedback-day", "");
+  if (last === today()) return;
+  if (afterPlace ? store.get("drekka-asked-after-place", false) : !(n === 1 || n === 3 || n % 5 === 0)) return;
+  if (afterPlace) store.set("drekka-asked-after-place", true);
+  store.set("drekka-feedback-day", today());
+  setTimeout(openFeedback, 900);
+}
+document.querySelectorAll(".app-fb").forEach((b) => (b.onclick = () => { sound.tap(); if ($("settings").open) $("settings").close(); openFeedback(); }));
+$("feedback").addEventListener("click", (e) => {
   const b = e.target.closest(".chip");
   if (!b) return;
-  $("fb-again").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
+  b.parentElement.querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
   sound.chip(true);
 });
 $("fb-later").onclick = () => $("feedback").close();
 $("fb-send").onclick = async () => {
-  const answer = {
-    useAgain: $("fb-again").querySelector(".chip.on")?.dataset.v || "",
-    thoughts: $("fb-text").value.trim(),
-    drinks: journal().length,
-  };
-  if (!(answer.thoughts || answer.useAgain)) return $("feedback").close();
-  $("feedback").close(); toast("thank you, that means a lot");
+  const answer = { about: "app", drinks: journal().length, places: store.get("drekka-places-seen", 0) };
+  $("feedback").querySelectorAll(".fb-q").forEach((q) => (answer[q.dataset.q] = q.querySelector(".chip.on")?.dataset.v || ""));
+  answer.change = $("fb-change").value.trim();
+  answer.liked = $("fb-like").value.trim();
+  if (![answer.easy, answer.picks, answer.useAgain, answer.change, answer.liked].some(Boolean)) return $("feedback").close();
+  $("feedback").close(); toast("thank you, that really helps");
   if (API) fetch(API + "/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answer) }).catch(() => {});
   else store.set("drekka-feedback", [...store.get("drekka-feedback", []), { ...answer, at: today() }]);
 };
@@ -734,7 +843,17 @@ $("journal-back").onclick = () => show(place ? "picks-view" : "search-view");
 $("new-entry").onclick = () => openBook({ drinkName: "", placeName: "", placeAddr: "" });
 
 // ---------- Settings ----------
+// Looks: tap one and the whole app changes right away.
+function drawLooks() {
+  $("looks").innerHTML = LOOKS.map((l) => `<button class="chip look ${currentLook() === l.id ? "on" : ""}" data-look="${l.id}"><i style="background:${l.dot}"></i>${l.name}</button>`).join("");
+}
+$("looks").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-look]");
+  if (!b) return;
+  sound.chip(true); setLook(b.dataset.look); drawLooks();
+});
 $("settings-btn").onclick = () => {
+  drawLooks();
   $("dev-keys").hidden = !!API; // with drekka's server, nobody needs keys
   $("key-input").value = aiKey();
   $("jina-input").value = store.get("drekka-jina", "");
@@ -753,10 +872,25 @@ function startQuiz() {
     if (answers) store.set("drekka-me", answers);
     store.set("drekka-welcomed", true);
     greet();
+    if (!store.get("drekka-toured", false)) setTimeout(showTour, 400);
     if (!API && !aiKey()) $("settings").showModal(); // testing without the server: add your own key
   });
 }
-if (!store.get("drekka-welcomed", false)) startQuiz();
+// Opening drekka: the glass animation first. The very first time it's "tap to open", the
+// walk-through and the "good to know" page, then the taste quiz.
+const firstTime = !store.get("drekka-intro-seen", false);
+runIntro(sound, firstTime, () => {
+  store.set("drekka-intro-seen", true);
+  if (!store.get("drekka-welcomed", false)) startQuiz();
+  else if (!store.get("drekka-toured", false)) showTour();
+});
+// The little tour of the buttons: once, right after the welcome and quiz (and from settings).
+function showTour() {
+  show("search-view");
+  runTour(sound, () => store.set("drekka-toured", true));
+}
+$("replay-tour").onclick = () => { $("settings").close(); showTour(); };
+$("replay-intro").onclick = () => { $("settings").close(); runIntro(sound, true, () => {}); };
 greet();
 $("settings-close").onclick = () => $("settings").close();
 $("key-save").onclick = () => {

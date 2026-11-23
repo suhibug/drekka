@@ -96,8 +96,10 @@ export function profileFrom(me) {
       (c.w || []).forEach((w) => words.add(w));
     }
   }
+  // Alcohol is only picked for people who said they like cocktails or beer & wine.
+  const likesAlcohol = (me.kinds || []).some((k) => k === "cocktails" || k === "beer & wine");
   const adventure = STEPS.find((s) => s.id === "adventure").choices.find((c) => c.t === me.adventure)?.a ?? 0.35;
-  return { loves, words: [...words], noFlavors: [...noFlavors], noWords: [...noWords], noAlcohol, adventure };
+  return { loves, words: [...words], noFlavors: [...noFlavors], noWords: [...noWords], noAlcohol, likesAlcohol, adventure };
 }
 
 // A friendly one-line summary for the end of the quiz (and settings).

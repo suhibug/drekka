@@ -152,17 +152,51 @@ function chime(steps, gap, kind) {
   steps.forEach((s, i) => voice(chord[s % chord.length] + 24, i * gap, 2.2, kind, 0.06));
 }
 
-function rustle() {
+
+// The welcome sound: a can opening ("pssht"), then fizzy bubbles popping. Made by code too.
+function canOpen() {
   if (!ctx || muted) return;
-  const t = ctx.currentTime, len = 0.35;
-  const buf = ctx.createBuffer(1, ctx.sampleRate * len, ctx.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.sin((Math.PI * i) / d.length);
+  const t = ctx.currentTime, out = ctx.createGain();
+  out.gain.value = 0.9 * volume + 0.15; // a touch louder than the music, still soft
+  out.connect(ctx.destination);
+  // the tab click
+  const click = ctx.createOscillator(), cg = ctx.createGain();
+  click.type = "triangle"; click.frequency.setValueAtTime(1800, t); click.frequency.exponentialRampToValueAtTime(300, t + 0.03);
+  cg.gain.setValueAtTime(0.25, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  click.connect(cg); cg.connect(out); click.start(t); click.stop(t + 0.06);
+  // the gas rushing out: noise that starts bright and fades
+  const len = 0.6, buf = ctx.createBuffer(1, ctx.sampleRate * len, ctx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const hiss = ctx.createBufferSource(), hp = ctx.createBiquadFilter(), hg = ctx.createGain();
+  hiss.buffer = buf; hp.type = "bandpass"; hp.Q.value = 0.8;
+  hp.frequency.setValueAtTime(6000, t + 0.02); hp.frequency.exponentialRampToValueAtTime(2500, t + len);
+  hg.gain.setValueAtTime(0.0001, t); hg.gain.exponentialRampToValueAtTime(0.22, t + 0.04); hg.gain.exponentialRampToValueAtTime(0.001, t + len);
+  hiss.connect(hp); hp.connect(hg); hg.connect(out); hiss.start(t + 0.02);
+  // bubbles: tiny rising "plips", many at first, then fewer
+  for (let i = 0; i < 38; i++) {
+    const at = t + 0.25 + Math.pow(Math.random(), 1.7) * 2.2;
+    const o = ctx.createOscillator(), g = ctx.createGain(), f = 900 + Math.random() * 2200;
+    o.type = "sine"; o.frequency.setValueAtTime(f, at); o.frequency.exponentialRampToValueAtTime(f * 1.9, at + 0.025);
+    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.03 + Math.random() * 0.03, at + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.035);
+    o.connect(g); g.connect(out); o.start(at); o.stop(at + 0.05);
+  }
+}
+
+// Turning a page: one quick, soft paper fold (a short brush of noise that dulls as it folds).
+function fold() {
+  if (!ctx || muted) return;
+  const t = ctx.currentTime, len = 0.12;
+  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 1.5);
   const src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
-  src.buffer = buf; bp.type = "bandpass"; bp.frequency.value = 3000; bp.Q.value = 0.7; g.gain.value = 0.25;
+  src.buffer = buf; bp.type = "bandpass"; bp.Q.value = 1.1;
+  bp.frequency.setValueAtTime(2600, t); bp.frequency.exponentialRampToValueAtTime(900, t + len);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
   src.connect(bp); bp.connect(g); g.connect(master); src.start(t);
 }
 
 export const sound = {
+  open() { canOpen(); buzz(); },
   setVolume(v) {
     volume = Math.max(0, Math.min(1, v));
     try { localStorage.setItem("drekka-volume", String(volume)); } catch {}
@@ -177,8 +211,8 @@ export const sound = {
   tap() { buzz(); },
   chip() { buzz(); },
   reveal() { chime([1, 2, 3], 0.16, "bell"); },
-  page() { rustle(); },
-  save() { buzz(); rustle(); chime([2, 3, 4], 0.12, "bell"); },
+  page() { fold(); },
+  save() { buzz(); fold(); chime([2, 3, 4], 0.12, "bell"); },
   toggle() {
     muted = !muted;
     try { localStorage.setItem("drekka-muted", muted ? "1" : "0"); } catch {}

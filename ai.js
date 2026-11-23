@@ -16,7 +16,8 @@ const FORMAT = `Return ONLY JSON: {"found": true, "d": [[name, price, uniqueness
 - uniqueness: 1-10. 1 = you can get it almost anywhere (chocolate shake, iced latte, plain cola).
   10 = rare: only here, or a very unusual combination. Be honest and spread the scores out.
 - why: max 7 words, what makes it special (or why it's common).
-- flavors: 2-4 lowercase words from: fruity, citrus, berry, tropical, coconut, mango, chocolate, caramel, vanilla, nutty, floral, herbal, spicy, smoky, creamy, sour, sweet, coffee, tea, minty, cola.
+- flavors: 2-4 lowercase words from: fruity, citrus, berry, tropical, coconut, mango, chocolate, caramel, vanilla, nutty, floral, herbal, spicy, smoky, creamy, sour, sweet, coffee, tea, minty, cola, hoppy, malty, crisp.
+- beer on tap: name it as listed (like "Hop Ollie IPA"); put its style and ABV in why when given (like "hazy IPA, 6.8% ABV").
   Always include "coffee" if it has coffee or espresso.
 - flags: "" or letters: p = marked popular or signature, s = seasonal, a = has alcohol.
 Up to 45 drinks. Leave out food. List each drink once.`;
@@ -70,7 +71,7 @@ export async function readMenu(key, place, pages) {
     return t ? `--- page: ${p.url}\n${t}` : "";
   }).join("\n\n");
   const where = `${place.name}${place.address ? ", " + place.address : ""}`;
-  const parts = [{ text: `Below is web text about the menu of ${where}. List the drinks on it. Only use pages that are clearly about THIS place (same name; same city if one is given), and ignore pages about any other place, even with a similar name. Only include drinks that are actually written in this text; never invent any. If there are no drinks for this exact place, return {"found": false}.\n${FORMAT}\n\n${text}` }];
+  const parts = [{ text: `Below is web text about the menu of ${where}. List the drinks on it. Only use pages that are clearly about THIS place (same name; same city if one is given), and ignore pages about any other place, even with a similar name. Only include drinks that are actually written in this text; never invent any. If there are no drinks for this exact place, return {"found": false}.${place.tap ? " This place is a brewery or taproom: list the beers on tap first (all of them), then its other drinks." : ""}\n${FORMAT}\n\n${text}` }];
   // Now and then the ai's answer comes back garbled: ask again (the last try uses a different
   // model) before giving up.
   let menu;
