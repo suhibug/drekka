@@ -4,6 +4,7 @@
 // When the menu is ready, a "your picks are ready" button appears: nothing jumps while you read.
 // If the menu is ready fast (it's saved, or quick to read), none of this shows at all.
 import { startDots, stopDots } from "./motion.js";
+import { track } from "./track.js";
 
 // True, simple drink facts. Keep them accurate: no guesses.
 const FACTS = [
@@ -104,7 +105,7 @@ export function brewing(box, placeName, sound) {
     $("brew-step").textContent = "your picks are ready";
     $("brew-wait").innerHTML = `<button class="ink-btn ready-btn" id="see-picks">see my picks</button>`;
     sound?.reveal();
-    $("see-picks").onclick = () => { sound?.tap(); stop(); show(); };
+    $("see-picks").onclick = () => { sound?.tap(); track("see-picks-after-wait"); stop(); show(); };
   }
   return { stop, ready };
 }
@@ -119,8 +120,9 @@ function swap(el, text) {
 // Builds one card in `flash` as a game. When it's opened, the fact shows.
 function openCard(flash, game, fact, sound) {
   flash.className = `flash game-${game}`;
+  delete flash.dataset.counted;
   const back = `<div class="flash-face back"><p class="hand">${fact}</p></div>`;
-  const opened = () => { if (flash.classList.contains("open")) return; flash.classList.add("open"); sound?.reveal(); };
+  const opened = () => { if (flash.classList.contains("open")) return; flash.classList.add("open"); sound?.reveal(); track("card-opened", game); };
   flash.setAttribute("role", "button");
   flash.tabIndex = 0;
   flash.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); game === "flip" ? flash.classList.toggle("flipped") : opened(); } };
@@ -129,12 +131,12 @@ function openCard(flash, game, fact, sound) {
   if (game === "flip") {
     flash.setAttribute("aria-label", "drink fact card. tap to flip");
     flash.innerHTML = `<div class="flash-face front"><span class="flash-q">did you know?</span><span class="small">tap to flip</span></div>${back}`;
-    flash.onclick = () => { flash.classList.toggle("flipped"); sound?.page(); };
+    flash.onclick = () => { flash.classList.toggle("flipped"); sound?.page(); if (flash.classList.contains("flipped") && !flash.dataset.counted) { flash.dataset.counted = 1; track("card-opened", "flip"); } };
     return;
   }
 
   if (game === "scratch") {
-    flash.setAttribute("aria-label", "drink fact card. scratch it off, or press enter");
+    flash.setAttribute("aria-label", "mystery drink fact. scratch to reveal, or press enter");
     flash.innerHTML = `${back}<canvas class="scratch" aria-hidden="true"></canvas>`;
     const cv = flash.querySelector("canvas"), ctx = cv.getContext("2d"), s = devicePixelRatio || 1;
     const w = flash.clientWidth, h = flash.clientHeight;
@@ -146,8 +148,8 @@ function openCard(flash, game, fact, sound) {
     ctx.fillStyle = css.getPropertyValue("--brass").trim() || "#c9a45c";
     for (let i = 0; i < 26; i++) { ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.arc(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 0, 6.3); ctx.fill(); }
     ctx.globalAlpha = 1; ctx.fillStyle = "#f3e3c3"; ctx.textAlign = "center";
-    ctx.font = "700 32px Caveat, cursive"; ctx.fillText("scratch me!", w / 2, h / 2 + 4);
-    ctx.font = "15px Caveat, cursive"; ctx.fillText("rub with your finger", w / 2, h / 2 + 28);
+    ctx.font = "700 32px Caveat, cursive"; ctx.fillText("mystery fact", w / 2, h / 2 + 4);
+    ctx.font = "15px Caveat, cursive"; ctx.fillText("scratch to reveal ✦", w / 2, h / 2 + 28);
     ctx.globalCompositeOperation = "destination-out";
     let down = false, moves = 0;
     const rub = (e) => {

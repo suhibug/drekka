@@ -1,6 +1,7 @@
 // Drekka: find the most unique drink at a place, and keep a journal of drinks you try.
 // Screens: search -> picks -> (optional) journal page. Everything is saved on this device only.
 import { celebrate } from "./celebrate.js";
+import { track } from "./track.js";
 import { readMenu, readRating } from "./ai.js";
 import { API } from "./config.js";
 import { fetchMenuText } from "./menu.js";
@@ -183,7 +184,7 @@ $("results").addEventListener("click", (e) => {
 // ---------- 1b. No place in mind: find one near you ----------
 // Step 1: what kind of spot. Step 2: where you are (asks for location once). Step 3: a short list
 // of real places nearby, plus "you choose for me".
-$("near-btn").onclick = () => { sound.tap(); openNearby(); };
+$("near-btn").onclick = () => { sound.tap(); track("nearby-open"); openNearby(); };
 $("near-close").onclick = () => $("nearby").close();
 function openNearby(kindName) {
   if (!$("nearby").open) $("nearby").showModal();
@@ -194,9 +195,9 @@ function openNearby(kindName) {
 }
 $("near-body").addEventListener("click", (e) => {
   const k = e.target.closest("[data-k]"), p = e.target.closest("[data-pick]"), any = e.target.closest("#choose-for-me");
-  if (k) { sound.chip(true); nearList(KINDS.find((x) => x.t === k.dataset.k)); }
-  if (p) { sound.tap(); goTo(nearPlaces[+p.dataset.pick]); }
-  if (any) { sound.reveal(); spin(); }
+  if (k) { sound.chip(true); track("nearby", k.dataset.k); nearList(KINDS.find((x) => x.t === k.dataset.k)); }
+  if (p) { sound.tap(); track("nearby-chose-place"); goTo(nearPlaces[+p.dataset.pick]); }
+  if (any) { sound.reveal(); track("nearby-pick-for-me"); spin(); }
   if (e.target.closest("#near-again")) { sound.tap(); openNearby(); }
 });
 let nearPlaces = [], nearKind = "";
@@ -208,6 +209,7 @@ async function nearList(kind) {
   const at = await whereAmI(near);
   if (!$("nearby").open) return;
   if (!at) {
+    track("nearby-no-location");
     $("near-body").innerHTML = `<h2 class="ink">i couldn't tell where you are</h2><p class="hand">allow location for drekka in your browser settings, or type the place's name instead.</p><button class="link-btn" id="near-again">← back</button>`;
     return;
   }
@@ -215,6 +217,7 @@ async function nearList(kind) {
   catch (err) { $("near-body").innerHTML = `<h2 class="ink">hmm</h2><p class="hand">${esc(err.message)}</p><button class="link-btn" id="near-again">← back</button>`; return; }
   if (!$("nearby").open) return;
   if (!nearPlaces.length) {
+    track("nearby-none-found", kind.t);
     $("near-body").innerHTML = `<h2 class="ink">no ${esc(kind.t)} close by</h2><p class="hand">the map doesn't know one near you. try another kind of spot.</p><button class="link-btn" id="near-again">← pick another kind</button>`;
     return;
   }
@@ -243,6 +246,7 @@ let place = null, menu = null, chosen = [], shown = [];
 
 async function openPlace(p) {
   place = p; menu = null; chosen = []; shown = []; groups = []; price = "";
+  track("place-open");
   show("picks-view");
   $("place-name").textContent = p.name;
   $("place-addr").textContent = p.address || "";
@@ -261,17 +265,19 @@ async function openPlace(p) {
   // Each place's menu is saved on the phone for the day, so coming back is instant.
   const cacheKey = `drekka-menu:${placeKey(p)}`;
   const cached = store.get(cacheKey, null);
-  if (cached && cached.day === today()) { menu = cached.menu; return showPicks(); }
+  if (cached && cached.day === today()) { menu = cached.menu; track("menu-saved-on-phone"); return showPicks(); }
 
   // Find their website, open the menu pages, then let the ai pick out the drinks.
   // Fast answers show straight away; if it takes over a second, a drink gets "made" on screen.
   $("status").textContent = "";
+  const started = Date.now();
   const wait = brewing($("status"), p.name, sound);
   stopWaiting = wait.stop;
   try {
     menu = await getMenu(p);
   } catch (err) {
     wait.stop();
+    track("menu-error");
     if (place !== p) return;
     $("status").textContent = err.message;
     return;
@@ -279,10 +285,13 @@ async function openPlace(p) {
   if (place !== p) return wait.stop(); // they already moved on to another place
   if (!menu.found) {
     wait.stop();
+    track("menu-not-found");
     $("status").textContent = "i looked everywhere and couldn't find this place's drink menu online. try another spot nearby.";
     return;
   }
   store.set(cacheKey, { day: today(), menu });
+  const secs = (Date.now() - started) / 1000;
+  track("menu-found", secs < 3 ? "fast" : secs < 20 ? "under 20s" : "slow");
   store.set("drekka-places-seen", store.get("drekka-places-seen", 0) + 1);
   // Fast: the picks show right away. Slow: a "see my picks" button, so nothing jumps while you read.
   wait.ready(() => { if (place === p) showPicks(); });
@@ -396,6 +405,7 @@ $("picks-view").addEventListener("click", (e) => {
   if (!b) return;
   sound.tap();
   const d = menu.drinks.find((x) => x.name === b.dataset.drink);
+  track("pick", b.closest(".card")?.querySelector(".kind")?.textContent || "");
   openBook({ drinkName: d.name, flavors: d.flavors, uniqueness: d.uniqueness, placeName: place.name, placeAddr: place.address });
 });
 
@@ -696,6 +706,7 @@ async function saveEntry() {
   if (!store.set("drekka-journal", [entry, ...journal()])) return toast("your phone is out of space for photos");
   draft.saved = true;
   sound.save();
+  track("journal-save", draft.video ? "video" : draft.photo ? "photo" : "no photo");
   closeBook(() => {
     if (!$("journal-view").hidden) drawJournal();
     celebrate(entry, sound, () => askFeedback());
@@ -734,6 +745,7 @@ $("fb-send").onclick = async () => {
   answer.liked = $("fb-like").value.trim();
   if (![answer.easy, answer.picks, answer.useAgain, answer.change, answer.liked].some(Boolean)) return $("feedback").close();
   $("feedback").close(); toast("thank you, that really helps");
+  track("feedback-sent");
   if (API) fetch(API + "/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answer) }).catch(() => {});
   else store.set("drekka-feedback", [...store.get("drekka-feedback", []), { ...answer, at: today() }]);
 };
@@ -850,7 +862,7 @@ function drawLooks() {
 $("looks").addEventListener("click", (e) => {
   const b = e.target.closest("[data-look]");
   if (!b) return;
-  sound.chip(true); setLook(b.dataset.look); drawLooks();
+  sound.chip(true); setLook(b.dataset.look); track("look", b.dataset.look); drawLooks();
 });
 $("settings-btn").onclick = () => {
   drawLooks();
@@ -869,6 +881,7 @@ function greet() {
 }
 function startQuiz() {
   runQuiz(sound, me(), (answers) => {
+    track(answers ? "quiz-done" : "quiz-skipped");
     if (answers) store.set("drekka-me", answers);
     store.set("drekka-welcomed", true);
     greet();
@@ -879,7 +892,9 @@ function startQuiz() {
 // Opening drekka: the glass animation first. The very first time it's "tap to open", the
 // walk-through and the "good to know" page, then the taste quiz.
 const firstTime = !store.get("drekka-intro-seen", false);
+if (firstTime) track("first-visit");
 runIntro(sound, firstTime, () => {
+  if (firstTime) track("intro-done");
   store.set("drekka-intro-seen", true);
   if (!store.get("drekka-welcomed", false)) startQuiz();
   else if (!store.get("drekka-toured", false)) showTour();
@@ -887,7 +902,7 @@ runIntro(sound, firstTime, () => {
 // The little tour of the buttons: once, right after the welcome and quiz (and from settings).
 function showTour() {
   show("search-view");
-  runTour(sound, () => store.set("drekka-toured", true));
+  runTour(sound, () => { track("tour-done"); store.set("drekka-toured", true); });
 }
 $("replay-tour").onclick = () => { $("settings").close(); showTour(); };
 $("replay-intro").onclick = () => { $("settings").close(); runIntro(sound, true, () => {}); };
